@@ -47,12 +47,20 @@ func (m *metricsStore) render(version string) string {
 			continue
 		}
 		method, path, appVersion := parts[0], parts[1], parts[2]
-		b.WriteString("io_http_requests_total{app_version=\"" + appVersion + "\",method=\"" + method + "\",path=\"" + path + "\"} " + strconv.FormatUint(m.counts[k], 10) + "\n")
+		b.WriteString("io_http_requests_total{app_version=\"")
+		b.WriteString(appVersion)
+		b.WriteString("\",method=\"")
+		b.WriteString(method)
+		b.WriteString("\",path=\"")
+		b.WriteString(path)
+		b.WriteString("\"} ")
+		b.WriteString(strconv.FormatUint(m.counts[k], 10))
+		b.WriteString("\n")
 	}
 
 	b.WriteString("\n# HELP io_app_info Static application metadata\n")
 	b.WriteString("# TYPE io_app_info gauge\n")
-	b.WriteString("io_app_info{app_version=\"" + version + "\"} 1\n")
+	b.WriteString("io_app_info{app_version=\"");b.WriteString(version);b.WriteString("\"} 1\n")
 	return b.String()
 }
 
