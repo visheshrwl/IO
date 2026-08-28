@@ -884,9 +884,60 @@
         async function refreshLogs() { try { $('logs').textContent = (await (await get(`/api/logs?selector=${encodeURIComponent(currentLog[0])}&container=${currentLog[1]}`)).json()).output; $('logTime').textContent = new Date().toLocaleTimeString(); } catch (error) { $('logs').textContent = error.message; } }
         async function refreshPeer() { try { $('peerLog').textContent = JSON.stringify(await (await get(`/api/peer-log?service=${currentPeer}`)).json(), null, 2); } catch (error) { $('peerLog').textContent = error.message; } }
         async function refreshMetrics() { try { const text = await (await get('/api/metrics?service=io')).text(); $('metrics').innerHTML = text.split('\n').filter(line => line && !line.startsWith('#')).slice(-8).map(line => { const split = line.lastIndexOf(' '); return `<div class="metric"><span>${line.slice(0, split)}</span><b>${line.slice(split + 1)}</b></div>`; }).join('') || '<div class="metric">No metrics yet</div>'; } catch (error) { $('metrics').textContent = error.message; } }
+        const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+        function setPlayStep(step, mode = 'active') {
+            document.querySelectorAll('#liveFlow [data-step]').forEach(node => node.classList.toggle('active', mode === 'active' && node.dataset.step === step));
+            document.querySelectorAll('#liveFlow [data-step="v2"]').forEach(node => node.classList.toggle('shadow-active', mode === 'shadow' && node.dataset.step === step));
+            document.querySelectorAll('#liveFlow [data-arrow]').forEach(arrow => arrow.classList.toggle('active', mode === 'active'));
+        }
+        function clearPlayFlow() {
+            document.querySelectorAll('#liveFlow [data-step]').forEach(node => node.classList.remove('active', 'shadow-active'));
+            document.querySelectorAll('#liveFlow [data-arrow]').forEach(arrow => arrow.classList.remove('active'));
+        }
+        async function playMirroredRequest() {
+            const button = $('playPing');
+            button.disabled = true;
+            clearPlayFlow();
+            $('playResult').textContent = 'Client is sending a real request...';
+            setPlayStep('client'); await wait(350);
+            setPlayStep('gateway'); await wait(350);
+            setPlayStep('v1');
+            try {
+                const response = await get('/api/traffic');
+                const reply = await response.text();
+                await wait(250);
+                setPlayStep('v2', 'shadow');
+                $('reply').textContent = reply;
+                $('playResult').textContent = `v1 answered: ${reply}  |  v2 received the shadow copy`;
+                await refreshEvidence();
+            } catch (error) {
+                $('playResult').textContent = `Request failed: ${error.message}`;
+            } finally { button.disabled = false; }
+        }
+        async function playDistributedExchange() {
+            const button = $('playExchange');
+            button.disabled = true;
+            clearPlayFlow();
+            $('playResult').textContent = 'io is starting the distributed exchange...';
+            setPlayStep('client'); await wait(300);
+            setPlayStep('gateway'); await wait(300);
+            setPlayStep('v1');
+            try {
+                const response = await get('/api/trigger', { method: 'POST' });
+                $('reply').textContent = `Exchange dispatched (${response.status})`;
+                $('playResult').textContent = 'io → pong-service → io  |  waiting for the callback...';
+                await wait(650);
+                $('playResult').textContent = 'io → pong-service → io  |  round trip complete';
+                await refreshEvidence();
+            } catch (error) {
+                $('playResult').textContent = `Exchange failed: ${error.message}`;
+            } finally { button.disabled = false; }
+        }
         async function refreshEvidence() { await Promise.all([refreshStatus(), refreshLogs(), refreshPeer(), refreshMetrics()]); }
         $('refresh').onclick = async () => { await refreshEvidence(); try { const response = await get('/api/traffic'); $('reply').textContent = await response.text(); } catch (error) { $('reply').textContent = error.message; } };
         $('trigger').onclick = async () => { $('reply').textContent = 'Dispatching asynchronous peer exchange...'; try { const response = await get('/api/trigger', { method: 'POST' }); $('reply').textContent = `Exchange dispatched (${response.status})`; setTimeout(refreshEvidence, 400); } catch (error) { $('reply').textContent = error.message; } };
+        $('playPing').onclick = playMirroredRequest;
+        $('playExchange').onclick = playDistributedExchange;
         document.querySelectorAll('[data-selector]').forEach(tab => tab.onclick = () => { document.querySelectorAll('[data-selector]').forEach(t => t.classList.remove('active')); tab.classList.add('active'); currentLog = [tab.dataset.selector, tab.dataset.container]; refreshLogs(); });
         document.querySelectorAll('[data-service]').forEach(tab => tab.onclick = () => { document.querySelectorAll('[data-service]').forEach(t => t.classList.remove('active')); tab.classList.add('active'); currentPeer = tab.dataset.service; refreshPeer(); });
         refreshEvidence(); setInterval(refreshEvidence, 5000);
