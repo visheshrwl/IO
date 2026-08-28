@@ -37,6 +37,7 @@ func main() {
 	mux.HandleFunc("/api/peer-log", peerLogHandler)
 	mux.HandleFunc("/api/traffic", trafficHandler)
 	mux.HandleFunc("/api/trigger", triggerHandler)
+	mux.HandleFunc("/api/exchange", exchangeHandler)
 	mux.Handle("/", http.FileServer(http.Dir("dashboard")))
 
 	server := &http.Server{Addr: ":" + dashboardPort, Handler: mux}
@@ -108,6 +109,78 @@ func triggerHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, response.Body)
+}
+
+func exchangeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodPost, ioURL+"/peer/trigger", nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer response.Body.Close()
+	var dispatch map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&dispatch); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		writeJSON(w, map[string]any{"status": response.StatusCode, "dispatch": dispatch})
+		return
+	}
+
+	requestID, _ := dispatch["request_id"].(string)
+	var ioHop, pongHop []any
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		ioHop = matchingLogEvents("app=io-service,version=v1", "io-service", requestID)
+		pongHop = matchingLogEvents("app=pong-service", "pong-service", requestID)
+		if len(ioHop) >= 2 && len(pongHop) >= 2 {
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	writeJSON(w, map[string]any{
+		"request_id": requestID,
+		"complete":   len(ioHop) >= 2 && len(pongHop) >= 2,
+		"io":         ioHop,
+		"pong":       pongHop,
+	})
+}
+
+func matchingLogEvents(selector, container, requestID string) []any {
+	output := kubectlText("logs", "-l", selector, "-c", container, "--tail=200", "--prefix=true")
+	events := make([]any, 0, 2)
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.Contains(line, requestID) {
+			continue
+		}
+		event := map[string]string{"request_id": requestID, "raw": line}
+		switch {
+		case strings.Contains(line, "peer_sent type=pong"):
+			event["direction"], event["type"] = "sent", "pong"
+		case strings.Contains(line, "peer_received type=pong"):
+			event["direction"], event["type"] = "received", "pong"
+		case strings.Contains(line, "peer_sent type=ping"):
+			event["direction"], event["type"] = "sent", "ping"
+		case strings.Contains(line, "peer_received type=ping"):
+			event["direction"], event["type"] = "received", "ping"
+		default:
+			continue
+		}
+		events = append(events, event)
+	}
+	return events
 }
 
 func proxyGet(w http.ResponseWriter, target string) {

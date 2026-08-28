@@ -590,6 +590,34 @@
             font: 12px ui-monospace, SFMono-Regular, monospace;
         }
 
+        .exchange-proof {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .proof-box {
+            border: 1px solid #547269;
+            background: #20343a;
+            padding: 11px;
+            min-height: 76px;
+        }
+
+        .proof-box strong {
+            display: block;
+            color: #d9f0e5;
+            font-size: 14px;
+        }
+
+        .proof-box span {
+            display: block;
+            color: #a9c6ba;
+            font: 10px/1.4 ui-monospace, SFMono-Regular, monospace;
+            margin-top: 7px;
+            overflow-wrap: anywhere;
+        }
+
         @media (max-width:850px) {
             .story-grid {
                 grid-template-columns: 1fr;
@@ -626,6 +654,10 @@
 
             .branch-row .d-arrow {
                 transform: rotate(90deg);
+            }
+
+            .exchange-proof {
+                grid-template-columns: 1fr;
             }
         }
 
@@ -868,6 +900,14 @@
                     </div>
                 </div>
                 <div class="live-result" id="playResult">Ready. Choose a live scenario.</div>
+                <div class="exchange-proof">
+                    <div class="proof-box"><strong>Exchange ID</strong><span id="exchangeId">Waiting for a run</span>
+                    </div>
+                    <div class="proof-box"><strong>io → pong-service</strong><span id="exchangeHopOne">Waiting for the
+                            first hop</span></div>
+                    <div class="proof-box"><strong>pong-service → io</strong><span id="exchangeHopTwo">Waiting for the
+                            callback</span></div>
+                </div>
             </section>
             <p class="notice">The dashboard reads live data through its local Go proxy. Start the Istio and Service
                 port-forwards described in the README, then run <b>go run ./cmd/dashboard</b> and open
@@ -941,11 +981,20 @@
             setPlayStep('gateway'); await wait(300);
             setPlayStep('v1');
             try {
-                const response = await get('/api/trigger', { method: 'POST' });
-                $('reply').textContent = `Exchange dispatched (${response.status})`;
+                const response = await get('/api/exchange', { method: 'POST' });
+                const proof = await response.json();
+                $('reply').textContent = proof.complete ? 'Distributed exchange complete' : 'Distributed exchange incomplete';
                 $('playResult').textContent = 'io → pong-service → io  |  waiting for the callback...';
-                await wait(650);
-                $('playResult').textContent = 'io → pong-service → io  |  round trip complete';
+                $('exchangeId').textContent = proof.request_id || 'No exchange ID';
+                const ioSent = (proof.io || []).find(entry => entry.direction === 'sent' && entry.type === 'pong');
+                const pongReceived = (proof.pong || []).find(entry => entry.direction === 'received' && entry.type === 'pong');
+                const pongSent = (proof.pong || []).find(entry => entry.direction === 'sent' && entry.type === 'ping');
+                const ioReceived = (proof.io || []).find(entry => entry.direction === 'received' && entry.type === 'ping');
+                $('exchangeHopOne').textContent = ioSent && pongReceived ? `sent pong → received pong | ${proof.request_id}` : 'First hop not verified';
+                $('exchangeHopTwo').textContent = pongSent && ioReceived ? `sent ping → received ping | ${proof.request_id}` : 'Callback not verified';
+                await wait(250);
+                $('playResult').textContent = proof.complete ? 'io → pong-service → io  |  both hops verified' : 'Exchange started, but both hops were not verified';
+                if (proof.complete) setPlayStep('v2', 'shadow');
                 await refreshEvidence();
             } catch (error) {
                 $('playResult').textContent = `Exchange failed: ${error.message}`;
