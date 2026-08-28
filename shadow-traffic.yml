@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: io-service-v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: io-service
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: io-service
+        version: v1
+    spec:
+      containers:
+        - name: io-service
+          image: io:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: io-service-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: io-service
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: io-service
+        version: v2
+    spec:
+      containers:
+        - name: io-service
+          image: io:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: io-service
+spec:
+  selector:
+    app: io-service
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: io-virtualservice
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - io-gateway
+  http:
+    - route:
+        - destination:
+            host: io-service
+            subset: v1
+      mirror:
+        host: io-service
+        subset: v2
+      mirrorPercentage:
+        value: 20.0

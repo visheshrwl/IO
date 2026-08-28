@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: io-virtualservice
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - io-gateway
+  http:
+    - route:
+        - destination:
+            host: io-service
+            subset: v1
+            port:
+              number: 80
+      mirror:
+        host: io-service
+        subset: v2
+      mirrorPercentage:
+        value: 100.0

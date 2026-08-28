@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: io-service-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: io-service
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: io-service
+        version: v2
+    spec:
+      containers:
+        - name: io-service
+          image: io-v2:instrumented
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: APP_VERSION
+              value: "v2"
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
