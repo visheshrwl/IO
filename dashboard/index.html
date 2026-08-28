@@ -473,6 +473,116 @@
             color: var(--ink);
         }
 
+        .playground {
+            grid-column: span 12;
+            padding: 26px 24px 24px;
+            background: #17242b;
+            color: #fff;
+        }
+
+        .playground .label {
+            color: #83bea9;
+        }
+
+        .playground h2 {
+            margin: 5px 0 8px;
+            font-size: 32px;
+            line-height: 1;
+        }
+
+        .playground p {
+            color: #b8cec4;
+            margin: 0;
+            max-width: 700px;
+        }
+
+        .play-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 22px 0;
+        }
+
+        .play-button {
+            padding: 12px 16px;
+            background: #d9f0e5;
+            color: var(--ink);
+            border-radius: 4px;
+            font: 700 12px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .play-button.alt {
+            background: transparent;
+            color: #d9f0e5;
+            border: 1px solid #83bea9;
+        }
+
+        .play-button:disabled {
+            cursor: wait;
+            opacity: .55;
+        }
+
+        .live-flow {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            align-items: center;
+        }
+
+        .live-node {
+            min-height: 82px;
+            padding: 12px 9px;
+            border: 1px solid #547269;
+            background: #20343a;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            transition: background .25s, border-color .25s, transform .25s;
+        }
+
+        .live-node strong {
+            font-size: 15px;
+            line-height: 1.05;
+        }
+
+        .live-node small {
+            color: #a9c6ba;
+            font: 10px ui-monospace, SFMono-Regular, monospace;
+            margin-top: 5px;
+        }
+
+        .live-node.active {
+            background: #23634f;
+            border-color: #83bea9;
+            transform: translateY(-4px);
+        }
+
+        .live-node.shadow-active {
+            background: #704225;
+            border-color: #e5965d;
+        }
+
+        .live-arrow {
+            text-align: center;
+            color: #547269;
+            font-size: 25px;
+            transition: color .25s;
+        }
+
+        .live-arrow.active {
+            color: #83bea9;
+        }
+
+        .live-arrow.shadow {
+            color: #e5965d;
+        }
+
+        .live-result {
+            min-height: 24px;
+            color: #d9f0e5;
+            font: 12px ui-monospace, SFMono-Regular, monospace;
+        }
+
         @media (max-width:850px) {
             .story-grid {
                 grid-template-columns: 1fr;
@@ -690,11 +800,11 @@
                         <div class="label">03 / application</div>
                         <h3>Distributed services <span>real network hops</span></h3>
                         <div class="diagram three">
-                            <div class="d-node primary"><strong>io</strong><small>POST /peer/trigger</small></div>
-                            <div class="d-arrow">→<small>pong</small></div>
-                            <div class="d-node"><strong>pong-service</strong><small>POST /peer/pong</small></div>
-                            <div class="d-arrow">→<small>ping reply</small></div>
-                            <div class="d-node primary"><strong>io</strong><small>POST /peer/ping</small></div>
+                            <div class="d-node primary"><strong>io</strong><small>starts exchange</small></div>
+                            <div class="d-arrow">→<small>pong message</small></div>
+                            <div class="d-node"><strong>pong-service</strong><small>receives and replies</small></div>
+                            <div class="d-arrow">→<small>ping callback</small></div>
+                            <div class="d-node primary"><strong>io</strong><small>round trip complete</small></div>
                         </div>
                         <p class="flow-caption"><b>One request ID:</b> logs and peer timelines prove both independent
                             HTTP hops.</p>
@@ -726,6 +836,29 @@
                             risking the customer response.</p>
                     </article>
                 </div>
+            </section>
+            <section class="panel playground" aria-label="Live playground">
+                <div class="label">Live playground</div>
+                <h2>Click it. Watch the system move.</h2>
+                <p>These controls send real traffic to the running cluster. The response, logs, mirror, and service
+                    exchange appear in the panels above.</p>
+                <div class="play-actions">
+                    <button class="play-button" id="playPing">Run mirrored request</button>
+                    <button class="play-button alt" id="playExchange">Run distributed exchange</button>
+                </div>
+                <div class="live-flow" id="liveFlow">
+                    <div class="live-node" data-step="client"><strong>Client</strong><small>starts request</small></div>
+                    <div class="live-arrow" data-arrow="1">→</div>
+                    <div class="live-node" data-step="gateway"><strong>Istio Gateway</strong><small>routes to v1</small>
+                    </div>
+                    <div class="live-arrow" data-arrow="2">→</div>
+                    <div class="live-node" data-step="v1"><strong>Backend v1</strong><small>returns response</small>
+                    </div>
+                    <div class="live-arrow shadow" data-arrow="3">↘</div>
+                    <div class="live-node shadow" data-step="v2"><strong>Backend v2</strong><small>shadow copy
+                            only</small></div>
+                </div>
+                <div class="live-result" id="playResult">Ready. Choose a live scenario.</div>
             </section>
             <p class="notice">The dashboard reads live data through its local Go proxy. Start the Istio and Service
                 port-forwards described in the README, then run <b>go run ./cmd/dashboard</b> and open
