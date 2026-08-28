@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: io-service
-          image: io-v1:instrumented
+          image: io-v1:local-20260828
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

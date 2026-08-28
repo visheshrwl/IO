@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: pong-service
-          image: pong-service:instrumented
+          image: pong-service:local-20260828
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
