@@ -7,14 +7,14 @@ This document records the work done in this project, the commands used, the YAML
 This project is a simple Go HTTP service.
 
 Files involved:
-- [main.go](main.go)
-- [Dockerfile](Dockerfile)
-- [deployment.yml](deployment.yml)
-- [service.yml](service.yml)
-- [istio-gateway.yml](istio-gateway.yml)
-- [virtualservice.yml](virtualservice.yml)
-- [destination-rule.yml](destination-rule.yml)
-- [shadow-traffic.yml](shadow-traffic.yml)
+- [main.go](../cmd/io/main.go)
+- [Dockerfile](../Dockerfile)
+- [deployment-v1.yaml](../deploy/kubernetes/deployment-v1.yaml)
+- [service.yaml](../deploy/kubernetes/service.yaml)
+- [gateway.yaml](../deploy/istio/gateway.yaml)
+- [virtual-service.yaml](../deploy/istio/virtual-service.yaml)
+- [destination-rule.yaml](../deploy/istio/destination-rule.yaml)
+- [shadow-traffic-20-percent.yaml](../deploy/istio/examples/shadow-traffic-20-percent.yaml)
 
 The Go app listens on port 8080 and exposes `/ping`, which returns `Pong from v1!` or `Pong from v2!` based on the `APP_VERSION` environment variable.
 
@@ -29,7 +29,7 @@ This makes it possible to validate each deployment version independently, not ju
 
 ## 2. Application code
 
-### [main.go](main.go)
+### [main.go](../cmd/io/main.go)
 
 ```go
 package main
@@ -230,7 +230,7 @@ This is the kind of application that is perfect for a Kubernetes deployment.
 
 ## 3. Docker image setup
 
-### [Dockerfile](Dockerfile)
+### [Dockerfile](../Dockerfile)
 
 This Dockerfile does a multi-stage build:
 - builds a Go binary in a builder container
@@ -251,7 +251,7 @@ This is a standard pattern for Go containers.
 
 ## 4. Basic Kubernetes manifest: Deployment
 
-### [deployment.yml](deployment.yml)
+### [deployment-v1.yaml](../deploy/kubernetes/deployment-v1.yaml)
 
 Current version:
 
@@ -330,7 +330,7 @@ That is the essence of a Deployment:
 
 ## 5. Service manifest
 
-### [service.yml](service.yml)
+### [service.yaml](../deploy/kubernetes/service.yaml)
 
 Current version:
 
@@ -374,7 +374,7 @@ The Service is how you connect to a pod group without knowing the pod IPs. The p
 
 ## 6. Istio manifests
 
-### [istio-gateway.yml](istio-gateway.yml)
+### [gateway.yaml](../deploy/istio/gateway.yaml)
 
 ```yaml
 apiVersion: networking.istio.io/v1beta1
@@ -405,7 +405,7 @@ This is the public entry point for the mesh.
 
 ---
 
-### [virtualservice.yml](virtualservice.yml)
+### [virtual-service.yaml](../deploy/istio/virtual-service.yaml)
 
 ```yaml
 apiVersion: networking.istio.io/v1beta1
@@ -445,7 +445,7 @@ This is how traffic enters the mesh and is forwarded to the application. The mir
 
 ---
 
-### [destination-rule.yml](destination-rule.yml)
+### [destination-rule.yaml](../deploy/istio/destination-rule.yaml)
 
 ```yaml
 apiVersion: networking.istio.io/v1beta1
@@ -477,7 +477,7 @@ In Istio, subsets are selected by labels.
 
 ---
 
-### [shadow-traffic.yml](shadow-traffic.yml)
+### [shadow-traffic-20-percent.yaml](../deploy/istio/examples/shadow-traffic-20-percent.yaml)
 
 This was created as an example shadow deployment setup.
 
@@ -708,12 +708,12 @@ This is the key lesson:
 ### Service creation
 
 ```bash
-kubectl create -f service.yml
+kubectl create -f deploy/kubernetes/service.yaml
 ```
 Creates the Service resource from YAML.
 
 ```bash
-kubectl create service.yml
+kubectl create deploy/kubernetes/service.yaml
 ```
 This failed because `kubectl create` expects a resource type, not a filename directly in that form.
 
@@ -722,17 +722,17 @@ This failed because `kubectl create` expects a resource type, not a filename dir
 ### Apply operations
 
 ```bash
-kubectl apply -f deployment.yml
-kubectl apply -f service.yml
+kubectl apply -f deploy/kubernetes/deployment-v1.yaml
+kubectl apply -f deploy/kubernetes/service.yaml
 ```
 Applies the declarations in the YAML files to the cluster.
 
 This is usually preferred over `create` when managing declarative YAML.
 
 ```bash
-kubectl apply --dry-run=client -f istio-gateway.yml
-kubectl apply --dry-run=client -f virtualservice.yml
-kubectl apply --dry-run=client -f shadow-traffic.yml
+kubectl apply --dry-run=client -f deploy/istio/gateway.yaml
+kubectl apply --dry-run=client -f deploy/istio/virtual-service.yaml
+kubectl apply --dry-run=client -f deploy/istio/examples/shadow-traffic-20-percent.yaml
 ```
 Validates YAML syntax and Kubernetes API compatibility without actually applying it.
 
@@ -756,7 +756,7 @@ This is useful for testing a cluster-local Service from your laptop without a pu
 ```bash
 python3 - <<'PY'
 import yaml, sys
-for path in ['deployment.yml','service.yml']:
+for path in ['deploy/kubernetes/deployment-v1.yaml','deploy/kubernetes/service.yaml']:
     with open(path, 'r') as f:
         yaml.safe_load(f)
     print(f'{path}: OK')
@@ -765,8 +765,8 @@ PY
 Validates the YAML files parse correctly.
 
 Observed result:
-- deployment.yml: OK
-- service.yml: OK
+- deploy/kubernetes/deployment-v1.yaml: OK
+- deploy/kubernetes/service.yaml: OK
 
 This checks syntax, not Kubernetes semantics.
 
@@ -969,7 +969,7 @@ This is exactly how you validate that the gateway and service chain are function
 
 This is often the reason: your Go application is not logging anything.
 
-The app code in [main.go](main.go) currently does not log requests. It just returns a response from `http.HandleFunc("/ping")`.
+The app code in [main.go](../cmd/io/main.go) currently does not log requests. It just returns a response from `http.HandleFunc("/ping")`.
 
 That means:
 - when you curl the app, the response is returned successfully
@@ -1128,13 +1128,13 @@ This project taught the following main Kubernetes principles:
 
 ## 15. Reference files in this workspace
 
-- [main.go](main.go)
-- [Dockerfile](Dockerfile)
-- [deployment.yml](deployment.yml)
-- [service.yml](service.yml)
-- [istio-gateway.yml](istio-gateway.yml)
-- [virtualservice.yml](virtualservice.yml)
-- [destination-rule.yml](destination-rule.yml)
-- [shadow-traffic.yml](shadow-traffic.yml)
+- [main.go](../cmd/io/main.go)
+- [Dockerfile](../Dockerfile)
+- [deployment-v1.yaml](../deploy/kubernetes/deployment-v1.yaml)
+- [service.yaml](../deploy/kubernetes/service.yaml)
+- [gateway.yaml](../deploy/istio/gateway.yaml)
+- [virtual-service.yaml](../deploy/istio/virtual-service.yaml)
+- [destination-rule.yaml](../deploy/istio/destination-rule.yaml)
+- [shadow-traffic-20-percent.yaml](../deploy/istio/examples/shadow-traffic-20-percent.yaml)
 
 This guide is intended as a full learning record for Kubernetes and Istio foundations.

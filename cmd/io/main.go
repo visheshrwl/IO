@@ -60,7 +60,9 @@ func (m *metricsStore) render(version string) string {
 
 	b.WriteString("\n# HELP io_app_info Static application metadata\n")
 	b.WriteString("# TYPE io_app_info gauge\n")
-	b.WriteString("io_app_info{app_version=\"");b.WriteString(version);b.WriteString("\"} 1\n")
+	b.WriteString("io_app_info{app_version=\"")
+	b.WriteString(version)
+	b.WriteString("\"} 1\n")
 	return b.String()
 }
 
@@ -73,9 +75,9 @@ func generateTraceID() string {
 }
 
 func main() {
-	PORT := os.Getenv("PORT")
-	if PORT == "" {
-		PORT = "8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
 	version := os.Getenv("APP_VERSION")
@@ -127,8 +129,8 @@ func main() {
 		_, _ = fmt.Fprintf(w, "Pong from %s!", version)
 	})
 
-	log.Printf("starting app version=%s port=%s", version, PORT)
-	if err := http.ListenAndServe(":"+PORT, nil); err != nil {
+	log.Printf("starting app version=%s port=%s", version, port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }
