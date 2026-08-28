@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IO Mesh Control Room</title>
+    <style>
+        :root {
+            --ink: #17242b;
+            --muted: #64747a;
+            --paper: #f5f7f3;
+            --panel: #fff;
+            --line: #d8e1dc;
+            --green: #16745b;
+            --mint: #d9f0e5;
+            --orange: #d36c2d;
+            --red: #b84938;
+            --shadow: 0 18px 45px #1d332d12;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            background: radial-gradient(circle at 85% 0, #d9eee5 0, transparent 31%), linear-gradient(135deg, #f5f7f3, #e9f0eb);
+            font: 15px/1.45 Georgia, serif;
+        }
+
+        button {
+            border: 0;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .shell {
+            max-width: 1450px;
+            margin: auto;
+            padding: 32px 28px 52px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 20px;
+            margin-bottom: 28px;
+        }
+
+        .kicker {
+            color: var(--green);
+            font: 700 12px/1.2 ui-monospace, SFMono-Regular, monospace;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            font-size: clamp(32px, 5vw, 64px);
+            line-height: .95;
+            margin: 8px 0 10px;
+            letter-spacing: 0;
+        }
+
+        .lede {
+            max-width: 680px;
+            color: var(--muted);
+            font-size: 18px;
+            margin: 0;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .button {
+            padding: 11px 16px;
+            border-radius: 5px;
+            background: var(--ink);
+            color: #fff;
+            font: 700 13px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .button.secondary {
+            background: #fff;
+            color: var(--ink);
+            border: 1px solid var(--line);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+        }
+
+        .panel {
+            background: #ffffffd9;
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow);
+            padding: 20px;
+            min-width: 0;
+        }
+
+        .hero {
+            grid-column: span 8;
+            min-height: 245px;
+            background: var(--ink);
+            color: #fff;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero:after {
+            content: "";
+            position: absolute;
+            width: 260px;
+            height: 260px;
+            border: 1px solid #83bea955;
+            border-radius: 50%;
+            right: -55px;
+            top: -75px;
+            box-shadow: 0 0 0 32px #83bea911, 0 0 0 64px #83bea908;
+        }
+
+        .hero h2 {
+            max-width: 590px;
+            font-size: 34px;
+            line-height: 1.08;
+            margin: 18px 0 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero p {
+            max-width: 560px;
+            color: #b8cec4;
+            position: relative;
+            z-index: 1;
+        }
+
+        .score {
+            grid-column: span 4;
+            display: grid;
+            align-content: space-between;
+        }
+
+        .score strong {
+            display: block;
+            font-size: 55px;
+            line-height: 1;
+            color: var(--green);
+        }
+
+        .label {
+            color: var(--muted);
+            font: 700 11px ui-monospace, SFMono-Regular, monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .flow {
+            grid-column: span 12;
+            padding: 24px 20px;
+        }
+
+        .flowline {
+            display: grid;
+            grid-template-columns: 1fr 70px 1fr 70px 1fr;
+            align-items: center;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .node {
+            border: 1px solid var(--line);
+            background: var(--paper);
+            padding: 16px;
+            min-height: 96px;
+        }
+
+        .node b {
+            display: block;
+            font-size: 20px;
+            margin: 5px 0;
+        }
+
+        .node small {
+            color: var(--muted);
+            font-family: ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .arrow {
+            text-align: center;
+            color: var(--green);
+            font-size: 28px;
+        }
+
+        .arrow small {
+            display: block;
+            font: 10px ui-monospace, SFMono-Regular, monospace;
+            color: var(--muted);
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--green);
+            font: 700 12px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .status:before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #3db982;
+            box-shadow: 0 0 0 4px #3db98222;
+        }
+
+        .half {
+            grid-column: span 6;
+        }
+
+        .panel h3 {
+            margin: 0 0 14px;
+            font-size: 22px;
+        }
+
+        .panelhead {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        pre {
+            background: #17242b;
+            color: #cfe8dc;
+            padding: 15px;
+            min-height: 190px;
+            max-height: 310px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font: 12px/1.5 ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .log-tabs {
+            display: flex;
+            gap: 7px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 7px 10px;
+            border: 1px solid var(--line);
+            background: var(--paper);
+            color: var(--muted);
+            font: 11px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .tab.active {
+            background: var(--mint);
+            border-color: #95cbb5;
+            color: var(--green);
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--line);
+            padding: 9px 0;
+            font: 12px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .metric b {
+            color: var(--orange);
+        }
+
+        .notice {
+            grid-column: span 12;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width:850px) {
+
+            .hero,
+            .score,
+            .half {
+                grid-column: span 12;
+            }
+
+            header {
+                display: block;
+            }
+
+            .actions {
+                justify-content: flex-start;
+                margin-top: 18px;
+            }
+
+            .flowline {
+                grid-template-columns: 1fr;
+            }
+
+            .arrow {
+                transform: rotate(90deg);
+                margin: -4px 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="shell">
+        <header>
+            <div>
+                <div class="kicker">Kubernetes / Istio / distributed systems</div>
+                <h1>IO mesh control room</h1>
+                <p class="lede">A live, CTO-ready view of one request: served by v1, mirrored to v2, then carried
+                    through a real service-to-service ping-pong exchange.</p>
+            </div>
+            <div class="actions"><button class="button" id="refresh">Refresh evidence</button><button
+                    class="button secondary" id="trigger">Run distributed exchange</button></div>
+        </header>
+        <section class="grid">
+            <article class="panel hero">
+                <div class="kicker" style="color:#83bea9">Live proof</div>
+                <h2 id="reply">Waiting for a request through the mesh.</h2>
+                <p>Only v1 is allowed to answer the caller. Istio sends the same request to v2 as a shadow copy, while
+                    application logs and trace IDs make both paths inspectable.</p>
+                <div class="status" style="color:#a9d7c3">Mesh route active</div>
+            </article>
+            <article class="panel score">
+                <div>
+                    <div class="label">Cluster health</div><strong id="health">--</strong><span id="healthText">Checking
+                        workloads...</span>
+                </div>
+                <div>
+                    <div class="label">Mirror policy</div><strong style="font-size:34px">100%</strong><span>v1 response
+                        / v2 shadow</span>
+                </div>
+            </article>
+            <article class="panel flow">
+                <div class="panelhead">
+                    <div>
+                        <div class="label">Request choreography</div>
+                        <h3>One request, three observable moments</h3>
+                    </div><span class="status">auto-refresh 5s</span>
+                </div>
+                <div class="flowline">
+                    <div class="node"><small>CLIENT</small><b>GET /ping</b><span>Caller sees the v1 response</span>
+                    </div>
+                    <div class="arrow">→<small>route</small></div>
+                    <div class="node"><small>ISTIO GATEWAY</small><b>v1 + mirror v2</b><span>DestinationRule selects
+                            subsets</span></div>
+                    <div class="arrow">→<small>shadow</small></div>
+                    <div class="node"><small>PEER SERVICES</small><b>io ↔ pong-service</b><span>Independent HTTP hops
+                            with IDs</span></div>
+                </div>
+            </article>
+            <article class="panel half">
+                <div class="panelhead">
+                    <div>
+                        <div class="label">Application evidence</div>
+                        <h3>Container logs</h3>
+                    </div><span class="label" id="logTime">--</span>
+                </div>
+                <div class="log-tabs"><button class="tab active" data-selector="app=io-service,version=v1"
+                        data-container="io-service">io v1</button><button class="tab"
+                        data-selector="app=io-service,version=v2" data-container="io-service">io v2
+                        shadow</button><button class="tab" data-selector="app=pong-service"
+                        data-container="pong-service">pong-service</button></div>
+                <pre id="logs">Loading logs...</pre>
+            </article>
+            <article class="panel half">
+                <div class="panelhead">
+                    <div>
+                        <div class="label">Distributed exchange</div>
+                        <h3>Peer timeline</h3>
+                    </div><span class="label">request_id correlation</span>
+                </div>
+                <div class="log-tabs"><button class="tab active" data-service="io">io /peer/log</button><button
+                        class="tab" data-service="pong">pong /peer/log</button></div>
+                <pre id="peerLog">Loading peer events...</pre>
+            </article>
+            <article class="panel half">
+                <div class="label">Prometheus-style evidence</div>
+                <h3>Runtime metrics</h3>
+                <div id="metrics">
+                    <div class="metric"><span>Loading...</span><b>--</b></div>
+                </div>
+            </article>
+            <article class="panel half">
+                <div class="label">Kubernetes evidence</div>
+                <h3>Workload state</h3>
+                <pre id="kube">Loading cluster state...</pre>
+            </article>
+            <p class="notice">The dashboard reads live data through its local Go proxy. Start the Istio and Service
+                port-forwards described in the README, then run <b>go run ./cmd/dashboard</b> and open
+                <b>http://localhost:8090</b>.</p>
+        </section>
+    </main>
+    <script>
+        const $ = id => document.getElementById(id);
+        let currentLog = ['app=io-service,version=v1', 'io-service'];
+        let currentPeer = 'io';
+        async function get(path, options) { const response = await fetch(path, options); if (!response.ok) throw new Error(await response.text()); return response; }
+        async function refreshStatus() {
+            try {
+                const data = await (await get('/api/status')).json();
+                const deployments = data.deployments?.items || [];
+                const healthy = deployments.filter(d => d.status?.availableReplicas === d.spec?.replicas).length;
+                $('health').textContent = `${healthy}/${deployments.length}`;
+                $('healthText').textContent = healthy === deployments.length ? 'Deployments available' : 'Workloads need attention';
+                $('kube').textContent = (data.pods?.items || []).map(p => `${p.metadata.name}\t${p.status.phase}\t${(p.status.containerStatuses || []).map(c => c.ready ? 'ready' : 'not-ready').join(',')}`).join('\n') || 'No pods found';
+            } catch (error) { $('health').textContent = 'ERR'; $('healthText').textContent = error.message; }
+        }
+        async function refreshLogs() { try { $('logs').textContent = (await (await get(`/api/logs?selector=${encodeURIComponent(currentLog[0])}&container=${currentLog[1]}`)).json()).output; $('logTime').textContent = new Date().toLocaleTimeString(); } catch (error) { $('logs').textContent = error.message; } }
+        async function refreshPeer() { try { $('peerLog').textContent = JSON.stringify(await (await get(`/api/peer-log?service=${currentPeer}`)).json(), null, 2); } catch (error) { $('peerLog').textContent = error.message; } }
+        async function refreshMetrics() { try { const text = await (await get('/api/metrics?service=io')).text(); $('metrics').innerHTML = text.split('\n').filter(line => line && !line.startsWith('#')).slice(-8).map(line => { const split = line.lastIndexOf(' '); return `<div class="metric"><span>${line.slice(0, split)}</span><b>${line.slice(split + 1)}</b></div>`; }).join('') || '<div class="metric">No metrics yet</div>'; } catch (error) { $('metrics').textContent = error.message; } }
+        async function refreshEvidence() { await Promise.all([refreshStatus(), refreshLogs(), refreshPeer(), refreshMetrics()]); }
+        $('refresh').onclick = async () => { await refreshEvidence(); try { const response = await get('/api/traffic'); $('reply').textContent = await response.text(); } catch (error) { $('reply').textContent = error.message; } };
+        $('trigger').onclick = async () => { $('reply').textContent = 'Dispatching asynchronous peer exchange...'; try { const response = await get('/api/trigger', { method: 'POST' }); $('reply').textContent = `Exchange dispatched (${response.status})`; setTimeout(refreshEvidence, 400); } catch (error) { $('reply').textContent = error.message; } };
+        document.querySelectorAll('[data-selector]').forEach(tab => tab.onclick = () => { document.querySelectorAll('[data-selector]').forEach(t => t.classList.remove('active')); tab.classList.add('active'); currentLog = [tab.dataset.selector, tab.dataset.container]; refreshLogs(); });
+        document.querySelectorAll('[data-service]').forEach(tab => tab.onclick = () => { document.querySelectorAll('[data-service]').forEach(t => t.classList.remove('active')); tab.classList.add('active'); currentPeer = tab.dataset.service; refreshPeer(); });
+        refreshEvidence(); setInterval(refreshEvidence, 5000);
+    </script>
+</body>
+
+</html>
