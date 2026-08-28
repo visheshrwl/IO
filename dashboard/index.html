@@ -290,6 +290,228 @@
             font-size: 13px;
         }
 
+        .story {
+            grid-column: span 12;
+            padding: 28px 24px 24px;
+            background: #fdfefd;
+        }
+
+        .story-intro {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 20px;
+            border-bottom: 1px solid var(--line);
+            padding-bottom: 18px;
+        }
+
+        .story-intro h2 {
+            margin: 5px 0 0;
+            font-size: 32px;
+            line-height: 1;
+        }
+
+        .story-intro p {
+            max-width: 430px;
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            color: var(--muted);
+            font: 11px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .legend i {
+            display: inline-block;
+            width: 25px;
+            border-top: 3px solid var(--green);
+        }
+
+        .legend i.shadow {
+            border-top: 3px dashed var(--orange);
+        }
+
+        .story-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .story-card {
+            border: 1px solid var(--line);
+            padding: 18px;
+            background: var(--paper);
+            min-height: 270px;
+        }
+
+        .story-card h3 {
+            margin: 5px 0 18px;
+            font-size: 23px;
+        }
+
+        .story-card h3 span {
+            color: var(--green);
+            font: 700 12px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .diagram {
+            display: grid;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .diagram.three {
+            grid-template-columns: 1fr 34px 1fr 34px 1fr;
+        }
+
+        .diagram.four {
+            grid-template-columns: 1fr 30px 1fr 30px 1fr 30px 1fr;
+        }
+
+        .diagram.stack {
+            grid-template-columns: 1fr 30px 1fr;
+        }
+
+        .d-node {
+            background: #fff;
+            border: 1px solid #bdcec5;
+            padding: 11px 9px;
+            min-height: 70px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .d-node.primary {
+            border: 2px solid var(--green);
+        }
+
+        .d-node.shadow {
+            border: 2px dashed var(--orange);
+        }
+
+        .d-node strong {
+            font-size: 16px;
+            line-height: 1.05;
+        }
+
+        .d-node small {
+            color: var(--muted);
+            margin-top: 5px;
+            font: 10px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .d-arrow {
+            color: var(--green);
+            text-align: center;
+            font: 24px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .d-arrow.shadow {
+            color: var(--orange);
+        }
+
+        .d-arrow small {
+            display: block;
+            color: var(--muted);
+            font-size: 9px;
+            line-height: 1;
+        }
+
+        .boundary {
+            border: 1px solid #a9c9ba;
+            padding: 12px;
+            position: relative;
+            background: #eaf5ef;
+        }
+
+        .boundary>label {
+            position: absolute;
+            top: -9px;
+            left: 10px;
+            padding: 0 6px;
+            background: #eaf5ef;
+            color: var(--green);
+            font: 700 10px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .boundary .d-node {
+            background: #fff;
+        }
+
+        .branch {
+            display: grid;
+            gap: 10px;
+        }
+
+        .branch-row {
+            display: grid;
+            grid-template-columns: 1fr 38px 1fr;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .flow-caption {
+            margin: 16px 0 0;
+            color: var(--muted);
+            font: 11px ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .flow-caption b {
+            color: var(--ink);
+        }
+
+        @media (max-width:850px) {
+            .story-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .story-intro {
+                display: block;
+            }
+
+            .story-intro p {
+                margin-top: 12px;
+            }
+        }
+
+        @media (max-width:560px) {
+            .story {
+                padding: 22px 15px 18px;
+            }
+
+            .diagram.three,
+            .diagram.four,
+            .diagram.stack {
+                grid-template-columns: 1fr;
+            }
+
+            .d-arrow {
+                transform: rotate(90deg);
+                margin: -4px 0;
+            }
+
+            .branch-row {
+                grid-template-columns: 1fr;
+            }
+
+            .branch-row .d-arrow {
+                transform: rotate(90deg);
+            }
+        }
+
         @media (max-width:850px) {
 
             .hero,
@@ -404,9 +626,111 @@
                 <h3>Workload state</h3>
                 <pre id="kube">Loading cluster state...</pre>
             </article>
+            <section class="panel story" aria-label="System flow diagrams">
+                <div class="story-intro">
+                    <div>
+                        <div class="kicker">The whole picture</div>
+                        <h2>From request to proof</h2>
+                    </div>
+                    <p>Four views of the same system. Follow the arrows and the behavior is visible before anyone reads
+                        a log.</p>
+                </div>
+                <div class="legend"><span><i></i>real request / response</span><span><i class="shadow"></i>Istio mirror
+                        / no client response</span></div>
+                <div class="story-grid">
+                    <article class="story-card">
+                        <div class="label">01 / platform</div>
+                        <h3>Kubernetes architecture <span>where it runs</span></h3>
+                        <div class="diagram three">
+                            <div class="d-node"><strong>Client</strong><small>browser / curl</small></div>
+                            <div class="d-arrow">→<small>HTTP</small></div>
+                            <div class="boundary"><label>ISTIO MESH</label>
+                                <div class="d-node primary"><strong>Ingress Gateway</strong><small>entry point</small>
+                                </div>
+                            </div>
+                            <div class="d-arrow">→<small>route</small></div>
+                            <div class="boundary"><label>KUBERNETES</label>
+                                <div class="d-node"><strong>io-service</strong><small>ClusterIP Service</small></div>
+                                <div class="branch-row">
+                                    <div class="d-node primary"><strong>v1</strong><small>2 pods</small></div>
+                                    <div class="d-arrow">→</div>
+                                    <div class="d-node shadow"><strong>v2</strong><small>1 pod</small></div>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="flow-caption"><b>Stable address:</b> Services find healthy pods by labels.</p>
+                    </article>
+                    <article class="story-card">
+                        <div class="label">02 / traffic policy</div>
+                        <h3>Backend mirroring <span>what the caller sees</span></h3>
+                        <div class="branch">
+                            <div class="d-node"><strong>GET /ping</strong><small>one incoming request</small></div>
+                            <div class="branch-row">
+                                <div class="d-arrow">↓<small>primary</small></div>
+                                <div></div>
+                                <div class="d-arrow shadow">↓<small>mirror 100%</small></div>
+                            </div>
+                            <div class="branch-row">
+                                <div class="d-node primary"><strong>v1 handles it</strong><small>response is
+                                        returned</small></div>
+                                <div></div>
+                                <div class="d-node shadow"><strong>v2 observes it</strong><small>response is
+                                        discarded</small></div>
+                            </div>
+                            <div class="branch-row">
+                                <div class="d-arrow">↓</div>
+                                <div></div>
+                                <div></div>
+                            </div>
+                            <div class="d-node primary"><strong>Pong from v1!</strong><small>only response the client
+                                    receives</small></div>
+                        </div>
+                    </article>
+                    <article class="story-card">
+                        <div class="label">03 / application</div>
+                        <h3>Distributed services <span>real network hops</span></h3>
+                        <div class="diagram three">
+                            <div class="d-node primary"><strong>io</strong><small>POST /peer/trigger</small></div>
+                            <div class="d-arrow">→<small>pong</small></div>
+                            <div class="d-node"><strong>pong-service</strong><small>POST /peer/pong</small></div>
+                            <div class="d-arrow">→<small>ping reply</small></div>
+                            <div class="d-node primary"><strong>io</strong><small>POST /peer/ping</small></div>
+                        </div>
+                        <p class="flow-caption"><b>One request ID:</b> logs and peer timelines prove both independent
+                            HTTP hops.</p>
+                    </article>
+                    <article class="story-card">
+                        <div class="label">04 / complete demo</div>
+                        <h3>Everything together <span>the CTO view</span></h3>
+                        <div class="diagram stack">
+                            <div class="d-node"><strong>Client</strong><small>GET /ping</small></div>
+                            <div class="d-arrow">↓</div>
+                            <div class="boundary"><label>ISTIO + KUBERNETES</label>
+                                <div class="branch-row">
+                                    <div class="d-node primary"><strong>v1</strong><small>real response</small></div>
+                                    <div class="d-arrow">→</div>
+                                    <div class="d-node shadow"><strong>v2</strong><small>shadow only</small></div>
+                                </div>
+                                <div class="d-arrow">↓</div>
+                                <div class="d-node"><strong>io-service</strong><small>real app path</small></div>
+                            </div>
+                        </div>
+                        <div class="diagram three" style="margin-top:10px">
+                            <div class="d-node primary"><strong>io</strong><small>send pong</small></div>
+                            <div class="d-arrow">→</div>
+                            <div class="d-node"><strong>pong-service</strong><small>send ping back</small></div>
+                            <div class="d-arrow">→</div>
+                            <div class="d-node primary"><strong>io</strong><small>round trip complete</small></div>
+                        </div>
+                        <p class="flow-caption"><b>Business value:</b> test v2 with production-shaped traffic without
+                            risking the customer response.</p>
+                    </article>
+                </div>
+            </section>
             <p class="notice">The dashboard reads live data through its local Go proxy. Start the Istio and Service
                 port-forwards described in the README, then run <b>go run ./cmd/dashboard</b> and open
-                <b>http://localhost:8090</b>.</p>
+                <b>http://localhost:8090</b>.
+            </p>
         </section>
     </main>
     <script>

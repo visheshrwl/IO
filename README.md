@@ -142,6 +142,28 @@ All three Deployments expose the readiness/liveness probes above, so `kubectl ro
 
 [`deploy/istio/virtual-service.yaml`](deploy/istio/virtual-service.yaml) sends **all** live traffic to the `v1` subset while mirroring a copy of that same traffic to `v2` (`mirrorPercentage: 100.0`) — the caller only ever sees `v1`'s response, but `v2` receives real, unweighted traffic shadow-copies so it can be validated before it's ever allowed to serve a live request. This is distinct from canary/weighted routing (`v1`/`v2` never split live traffic here). [`deploy/istio/examples/shadow-traffic-20-percent.yaml`](deploy/istio/examples/shadow-traffic-20-percent.yaml) is a self-contained variant of the same idea at 20% mirroring instead of 100%. See [`docs/kubernetes-learning-guide.md`](docs/kubernetes-learning-guide.md) for the full write-up of how each manifest was built and why.
 
+## CTO demo dashboard
+
+The repository includes a local dashboard at [`dashboard/index.html`](dashboard/index.html). It shows Kubernetes health, Istio v1/v2 mirroring evidence, application logs, Prometheus-style metrics, and the correlated `io` to `pong-service` to `io` exchange.
+
+Start the data tunnels in separate terminals:
+
+```bash
+kubectl port-forward svc/istio-ingressgateway -n istio-system 18081:80
+kubectl port-forward svc/io-service 18086:80
+kubectl port-forward svc/pong-service 18083:80
+```
+
+Then start the dashboard from the repository root:
+
+```bash
+go run ./cmd/dashboard
+```
+
+Open <http://localhost:8090>. **Refresh evidence** sends `GET /ping` through Istio and should show `Pong from v1!`, a v1 log, and the same request ID in a v2 shadow log. **Run distributed exchange** sends `POST /peer/trigger`; the peer panels show the two independent HTTP hops and their shared request ID.
+
+The dashboard server runs `kubectl` locally for read-only status and log panels, so Kubernetes credentials are not exposed to browser JavaScript. Set `INGRESS_URL`, `IO_URL`, or `PONG_URL` when using different local ports.
+
 ## Releases & container images
 
 Tagged releases (`vX.Y.Z`) are built and published automatically by [`.github/workflows/release.yml`](.github/workflows/release.yml):
