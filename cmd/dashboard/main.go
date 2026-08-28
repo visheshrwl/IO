@@ -142,6 +142,13 @@ func exchangeHandler(w http.ResponseWriter, r *http.Request) {
 	var ioHop, pongHop []any
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
+		// io-virtualservice-mesh pins mesh-internal traffic to io-service
+		// (pong-service's callback included) to the v1 subset, mirroring a
+		// shadow copy to v2 — the same guarantee the ingress path gives
+		// external clients. Checking only v1 here is the assertion that the
+		// guarantee holds: if it's ever violated (v2 becomes a real,
+		// load-bearing destination again), this should report "callback not
+		// found" rather than silently also accepting a v2 hit.
 		ioHop = matchingLogEvents("app=io-service,version=v1", "io-service", requestID)
 		pongHop = matchingLogEvents("app=pong-service", "pong-service", requestID)
 		if len(ioHop) >= 2 && len(pongHop) >= 2 {

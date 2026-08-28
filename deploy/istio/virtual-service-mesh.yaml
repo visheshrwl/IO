@@ -1,0 +1,34 @@
+# Mesh-internal counterpart to virtual-service.yaml. That VirtualService is
+# scoped to gateways: [io-gateway], so its rule only applies to traffic
+# entering through the Istio ingress gateway - it never touches pod-to-pod
+# calls, e.g. pong-service's callback to io-service. This VirtualService
+# extends the same v1-live / v2-shadow policy to mesh-internal traffic, so
+# no real dependency inside the mesh can ever be served by v2.
+#
+# It's intentionally a separate object rather than adding "mesh" to
+# virtual-service.yaml's gateways list: that VirtualService's hosts: ["*"]
+# is matched against the client's HTTP Host header for gateway traffic, but
+# against the literal destination hostname for mesh traffic - a bare "*"
+# there would make Envoy apply this route to any unmatched mesh-internal
+# call from any pod, not just requests to io-service.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: io-virtualservice-mesh
+spec:
+  hosts:
+    - io-service
+  gateways:
+    - mesh
+  http:
+    - route:
+        - destination:
+            host: io-service
+            subset: v1
+            port:
+              number: 80
+      mirror:
+        host: io-service
+        subset: v2
+      mirrorPercentage:
+        value: 100.0

@@ -569,6 +569,19 @@
             border-color: #e5965d;
         }
 
+        .live-node.fail {
+            background: #5c2323;
+            border-color: #cc6a6a;
+        }
+
+        .exchange-flow {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            align-items: center;
+            margin-top: 18px;
+        }
+
         .live-arrow {
             text-align: center;
             color: #547269;
@@ -900,14 +913,26 @@
                     </div>
                 </div>
                 <div class="live-result" id="playResult">Ready. Choose a live scenario.</div>
-                <div class="exchange-proof">
-                    <div class="proof-box"><strong>Exchange ID</strong><span id="exchangeId">Waiting for a run</span>
-                    </div>
-                    <div class="proof-box"><strong>io → pong-service</strong><span id="exchangeHopOne">Waiting for the
-                            first hop</span></div>
-                    <div class="proof-box"><strong>pong-service → io</strong><span id="exchangeHopTwo">Waiting for the
+                <p class="label" id="exchangeIdLabel" style="margin-top:18px;color:#83bea9">Distributed exchange:
+                    click "Run distributed exchange" to dispatch one</p>
+                <div class="exchange-flow" id="exchangeFlow">
+                    <div class="live-node" data-xstep="dispatch"><strong>io</strong><small>dispatch pong</small><span
+                            class="live-evidence" id="xDispatchEvidence">Waiting for a run</span></div>
+                    <div class="live-arrow" data-xarrow="1">→</div>
+                    <div class="live-node" data-xstep="receive"><strong>pong-service</strong><small>received,
+                            ack'd</small><span class="live-evidence" id="xReceiveEvidence">Waiting for the first
+                            hop</span></div>
+                    <div class="live-arrow" data-xarrow="2">→</div>
+                    <div class="live-node" data-xstep="callback"><strong>pong-service</strong><small>dispatch
+                            ping</small><span class="live-evidence" id="xCallbackEvidence">Waiting for the reply to be
+                            sent</span></div>
+                    <div class="live-arrow" data-xarrow="3">→</div>
+                    <div class="live-node" data-xstep="complete"><strong>io</strong><small>round trip
+                            complete</small><span class="live-evidence" id="xCompleteEvidence">Waiting for the
                             callback</span></div>
                 </div>
+                <div class="live-result" id="exchangeResult">Two independent HTTP hops, not one request/response —
+                    each node above lights up only once its own log line is found.</div>
             </section>
             <p class="notice">The dashboard reads live data through its local Go proxy. Start the Istio and Service
                 port-forwards described in the README, then run <b>go run ./cmd/dashboard</b> and open
