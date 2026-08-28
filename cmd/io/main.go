@@ -1,78 +1,19 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
 	"time"
+
+	"github.com/visheshrwl/io/internal/peer"
+	"github.com/visheshrwl/io/internal/service"
 )
 
-type metricsStore struct {
-	mu     sync.Mutex
-	counts map[string]uint64
-}
-
-func newMetricsStore() *metricsStore {
-	return &metricsStore{counts: map[string]uint64{}}
-}
-
-func (m *metricsStore) record(method, path, version string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := method + "|" + path + "|" + version
-	m.counts[key]++
-}
-
-func (m *metricsStore) render(version string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	keys := make([]string, 0, len(m.counts))
-	for k := range m.counts {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	var b strings.Builder
-	b.WriteString("# HELP io_http_requests_total Total HTTP requests received by the service\n")
-	b.WriteString("# TYPE io_http_requests_total counter\n")
-	for _, k := range keys {
-		parts := strings.SplitN(k, "|", 3)
-		if len(parts) < 3 {
-			continue
-		}
-		method, path, appVersion := parts[0], parts[1], parts[2]
-		b.WriteString("io_http_requests_total{app_version=\"")
-		b.WriteString(appVersion)
-		b.WriteString("\",method=\"")
-		b.WriteString(method)
-		b.WriteString("\",path=\"")
-		b.WriteString(path)
-		b.WriteString("\"} ")
-		b.WriteString(strconv.FormatUint(m.counts[k], 10))
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n# HELP io_app_info Static application metadata\n")
-	b.WriteString("# TYPE io_app_info gauge\n")
-	b.WriteString("io_app_info{app_version=\"")
-	b.WriteString(version)
-	b.WriteString("\"} 1\n")
-	return b.String()
-}
-
-func generateRequestID() string {
-	return fmt.Sprintf("req-%d", time.Now().UnixNano())
-}
-
-func generateTraceID() string {
-	return fmt.Sprintf("trace-%d", time.Now().UnixNano())
-}
+const serviceName = "io"
 
 func main() {
 	port := os.Getenv("PORT")
@@ -85,41 +26,26 @@ func main() {
 		version = "unknown"
 	}
 
+	peerURL := os.Getenv("PEER_URL")
+
 	start := time.Now()
-	metrics := newMetricsStore()
+	metrics := service.NewMetricsStore()
+	peerClient := peer.NewClient(peerURL)
+	exchangeLog := peer.NewLog(20)
 
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		_, _ = w.Write([]byte(metrics.render(version)))
+		_, _ = w.Write([]byte(metrics.Render(serviceName, version)))
 	})
 
-	http.HandleFunc("/health/live", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-
-	http.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
-		if time.Since(start) < 2*time.Second {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("warming up"))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
-	})
+	http.HandleFunc("/health/live", service.LivenessHandler())
+	http.HandleFunc("/health/ready", service.ReadinessHandler(start, 2*time.Second))
 
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		requestID := r.Header.Get("X-Request-ID")
-		if requestID == "" {
-			requestID = generateRequestID()
-		}
+		requestID := service.RequestID(r)
+		traceID := service.TraceID(r)
 
-		traceID := r.Header.Get("X-B3-TraceId")
-		if traceID == "" {
-			traceID = generateTraceID()
-		}
-
-		metrics.record(r.Method, r.URL.Path, version)
+		metrics.RecordHTTP(r.Method, r.URL.Path, version)
 		log.Printf("app_version=%s path=%s method=%s request_id=%s trace_id=%s", version, r.URL.Path, r.Method, requestID, traceID)
 
 		w.Header().Set("Content-Type", "text/plain")
@@ -129,7 +55,82 @@ func main() {
 		_, _ = fmt.Fprintf(w, "Pong from %s!", version)
 	})
 
-	log.Printf("starting app version=%s port=%s", version, port)
+	// /peer/trigger kicks off a real, asynchronous inter-service exchange:
+	// this service sends a "pong" message to the peer over HTTP, and the
+	// peer replies with its own separate "ping" HTTP call back to /peer/ping
+	// below. The two hops are independent network round trips, not a single
+	// request/response.
+	http.HandleFunc("/peer/trigger", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		requestID := service.RequestID(r)
+		traceID := service.TraceID(r)
+		metrics.RecordHTTP(r.Method, r.URL.Path, version)
+
+		if !peerClient.Configured() {
+			log.Printf("peer_trigger_failed reason=peer_not_configured request_id=%s", requestID)
+			http.Error(w, "PEER_URL is not configured", http.StatusInternalServerError)
+			return
+		}
+
+		msg := peer.Message{Type: "pong", From: serviceName, RequestID: requestID, SentAt: time.Now().UTC()}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		if err := peerClient.Send(ctx, "/peer/pong", msg, requestID, traceID); err != nil {
+			log.Printf("peer_send_failed type=pong request_id=%s err=%v", requestID, err)
+			http.Error(w, "failed to reach peer: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		metrics.RecordPeerSent("pong")
+		exchangeLog.Add(peer.Exchange{Message: msg, Direction: "sent", At: time.Now().UTC()})
+		log.Printf("peer_sent type=pong request_id=%s trace_id=%s", requestID, traceID)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":     "dispatched",
+			"message":    "pong",
+			"request_id": requestID,
+			"note":       "reply will arrive asynchronously at /peer/ping; check /peer/log",
+		})
+	})
+
+	// /peer/ping receives the peer's reply to a pong this service sent.
+	http.HandleFunc("/peer/ping", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		traceID := service.TraceID(r)
+		metrics.RecordHTTP(r.Method, r.URL.Path, version)
+
+		msg, err := peer.DecodeMessage(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		metrics.RecordPeerReceived("ping")
+		exchangeLog.Add(peer.Exchange{Message: msg, Direction: "received", At: time.Now().UTC()})
+		log.Printf("peer_received type=ping from=%s request_id=%s trace_id=%s round_trip_complete=true", msg.From, msg.RequestID, traceID)
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "acknowledged"})
+	})
+
+	http.HandleFunc("/peer/log", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(exchangeLog.Recent())
+	})
+
+	log.Printf("starting service=%s app_version=%s port=%s peer_url=%q", serviceName, version, port, peerURL)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}

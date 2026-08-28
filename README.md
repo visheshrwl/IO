@@ -1,35 +1,94 @@
 # IO
 
-A minimal Go HTTP service used as a hands-on sandbox for Kubernetes and Istio traffic-management patterns — shadow deployments (traffic mirroring), health probes, and Prometheus-style metrics.
+A pair of minimal Go HTTP services used as a hands-on sandbox for Kubernetes and Istio traffic-management patterns — shadow deployments (traffic mirroring), health probes, service-to-service messaging, and Prometheus-style metrics.
 
-The app itself is intentionally simple: it just needs to be identifiable per-version (`v1`/`v2`) so that Kubernetes and Istio behavior (rollouts, mirroring, routing) can be observed from the outside.
+- **`io`** ([`cmd/io`](cmd/io)) is identifiable per-version (`v1`/`v2`) so that Kubernetes and Istio behavior (rollouts, mirroring, routing) can be observed from the outside.
+- **`pong-service`** ([`cmd/pong-service`](cmd/pong-service)) is a second, independently deployed service that `io` talks to over the network, to exercise real inter-service traffic in the same cluster.
+
+Both are separate binaries, separate container images, and separate Kubernetes Deployments/Services — they only ever talk to each other over HTTP via `PEER_URL`, never through an in-process call, so the exchange between them reflects genuine distributed communication (DNS-based service discovery in-cluster, or two independent local processes when run outside one).
 
 ## Endpoints
 
-| Path            | Purpose                                                        |
-|-----------------|-----------------------------------------------------------------|
-| `GET /ping`     | Returns `Pong from <APP_VERSION>!`, echoes/generates request & trace IDs |
+### `io`
+
+| Path              | Purpose                                                        |
+|-------------------|-----------------------------------------------------------------|
+| `GET /ping`       | Returns `Pong from <APP_VERSION>!`, echoes/generates request & trace IDs |
+| `POST /peer/trigger` | Sends a `pong` message to `pong-service` over HTTP; returns `202` once dispatched (the reply arrives asynchronously) |
+| `POST /peer/ping` | Receives `pong-service`'s `ping` reply — this is `pong-service` calling *back into* `io`, not `io`'s own response |
+| `GET /peer/log`   | Last 20 sent/received peer messages, most recent first |
 | `GET /health/live`  | Liveness probe — always `200 ok`                            |
 | `GET /health/ready` | Readiness probe — `503` for the first 2s after start, then `200` |
-| `GET /metrics`  | Prometheus-format counters (`io_http_requests_total`, `io_app_info`) |
+| `GET /metrics`  | Prometheus-format counters (`io_http_requests_total`, `io_peer_messages_*_total`, `io_app_info`) |
+
+### `pong-service`
+
+| Path              | Purpose                                                        |
+|-------------------|-----------------------------------------------------------------|
+| `POST /peer/pong` | Receives `io`'s `pong` message, acks it, then asynchronously calls `io`'s `/peer/ping` with a `ping` reply |
+| `GET /peer/log`   | Last 20 sent/received peer messages, most recent first |
+| `GET /health/live`, `GET /health/ready` | Same probes as `io` |
+| `GET /metrics`    | Same metric families as `io`, labeled `service="pong-service"` |
 
 Every `/ping` response includes `X-App-Version`, `X-Request-ID`, and `X-Trace-ID` headers, and is logged server-side with the same fields — useful for confirming which version actually served a request when traffic is being split or mirrored.
+
+## Distributed ping-pong exchange
+
+`POST /peer/trigger` on `io` kicks off a two-hop, asynchronous exchange between the two services:
+
+1. `io` sends a `pong` message to `pong-service` at `POST /peer/pong` — a real outbound HTTP request over `PEER_URL`. `io`'s handler returns `202 Accepted` immediately; it does not wait for a reply.
+2. `pong-service` receives it, acknowledges it, and — in a separate goroutine, after its own response is already sent — makes its **own independent outbound HTTP request** back to `io` at `POST /peer/ping`, carrying a `ping` message.
+3. `io`'s `/peer/ping` handler receives that callback and logs the round trip as complete.
+
+Both hops carry the same `request_id` (to correlate the exchange) and `trace_id` (propagated end to end), visible in both services' logs and via `GET /peer/log` on each. Because each hop is its own HTTP request/response pair — not a single call whose response is reused — this is genuine service-to-service messaging rather than an in-process function call.
+
+```bash
+curl -X POST localhost:8080/peer/trigger
+curl localhost:8080/peer/log      # shows: sent pong, received ping
+curl localhost:8081/peer/log      # shows: received pong, sent ping
+```
 
 ## Getting started
 
 ### Run locally
 
+Each service needs `PEER_URL` pointing at the other. Run them on two ports in separate terminals:
+
 ```bash
-go run ./cmd/io
-# PORT defaults to 8080, APP_VERSION defaults to "unknown"
+# terminal 1
+PORT=8080 PEER_URL=http://localhost:8081 go run ./cmd/io
+
+# terminal 2
+PORT=8081 PEER_URL=http://localhost:8080 go run ./cmd/pong-service
+
 curl localhost:8080/ping
+curl -X POST localhost:8080/peer/trigger
 ```
 
-### Build and run with Docker
+`APP_VERSION` defaults to `"unknown"` if unset; `PEER_URL` must be set for the peer endpoints to work — `/peer/trigger` returns `500` with a clear error otherwise.
+
+### Run with Docker Compose
+
+The simplest way to see two real, separately-containered services talk to each other:
 
 ```bash
-docker build -t io:latest .
-docker run -p 8080:8080 -e APP_VERSION=v1 io:latest
+docker compose up --build
+curl -X POST localhost:8080/peer/trigger
+curl localhost:8080/peer/log
+curl localhost:8081/peer/log
+docker compose logs -f      # watch both containers log each hop of the exchange
+```
+
+### Build and run a single image with Docker
+
+Both services share one [`Dockerfile`](Dockerfile), selected via the `SERVICE` build arg:
+
+```bash
+docker build --build-arg SERVICE=io -t io:latest .
+docker run -p 8080:8080 -e APP_VERSION=v1 -e PEER_URL=http://host.docker.internal:8081 io:latest
+
+docker build --build-arg SERVICE=pong-service -t pong-service:latest .
+docker run -p 8081:8080 -e PEER_URL=http://host.docker.internal:8080 pong-service:latest
 ```
 
 The image is a multi-stage build: compiled with `golang:1.27.0-trixie`, then run from a minimal `alpine:3.20` image as a non-root user.
@@ -40,9 +99,11 @@ Manifests are split by concern so each can be applied/edited independently:
 
 | File | Resource |
 |---|---|
-| [`deploy/kubernetes/deployment-v1.yaml`](deploy/kubernetes/deployment-v1.yaml) | `io-service-v1` Deployment (2 replicas) |
-| [`deploy/kubernetes/deployment-v2.yaml`](deploy/kubernetes/deployment-v2.yaml) | `io-service-v2` Deployment (1 replica) |
+| [`deploy/kubernetes/deployment-v1.yaml`](deploy/kubernetes/deployment-v1.yaml) | `io-service-v1` Deployment (2 replicas), `PEER_URL=http://pong-service` |
+| [`deploy/kubernetes/deployment-v2.yaml`](deploy/kubernetes/deployment-v2.yaml) | `io-service-v2` Deployment (1 replica), `PEER_URL=http://pong-service` |
 | [`deploy/kubernetes/service.yaml`](deploy/kubernetes/service.yaml) | `io-service` ClusterIP Service, selects both versions |
+| [`deploy/kubernetes/pong-service-deployment.yaml`](deploy/kubernetes/pong-service-deployment.yaml) | `pong-service` Deployment (1 replica), `PEER_URL=http://io-service` |
+| [`deploy/kubernetes/pong-service-service.yaml`](deploy/kubernetes/pong-service-service.yaml) | `pong-service` ClusterIP Service |
 | [`deploy/istio/gateway.yaml`](deploy/istio/gateway.yaml) | Istio `Gateway` accepting traffic on port 80 |
 | [`deploy/istio/virtual-service.yaml`](deploy/istio/virtual-service.yaml) | `VirtualService` — routes to `v1`, mirrors 100% to `v2` |
 | [`deploy/istio/destination-rule.yaml`](deploy/istio/destination-rule.yaml) | `DestinationRule` defining the `v1`/`v2` subsets |
@@ -55,6 +116,15 @@ Apply the core resources:
 kubectl apply -f deploy/kubernetes/deployment-v1.yaml
 kubectl apply -f deploy/kubernetes/deployment-v2.yaml
 kubectl apply -f deploy/kubernetes/service.yaml
+kubectl apply -f deploy/kubernetes/pong-service-deployment.yaml
+kubectl apply -f deploy/kubernetes/pong-service-service.yaml
+```
+
+`io`'s pods resolve `pong-service` and `pong-service`'s pod resolves `io-service` purely through in-cluster DNS (`PEER_URL`) — the same mechanism either Service would use for any other client, so `/peer/trigger` exercises real cluster networking between two independently scaled, independently healthy Deployments:
+
+```bash
+kubectl port-forward svc/io-service 8080:80
+curl -X POST localhost:8080/peer/trigger
 ```
 
 Then, in an Istio-enabled mesh:
@@ -66,7 +136,7 @@ kubectl apply -f deploy/istio/virtual-service.yaml
 kubectl apply -f deploy/istio/telemetry.yaml
 ```
 
-Both Deployments expose the readiness/liveness probes above, so `kubectl rollout status` reflects actual application health rather than just container start.
+All three Deployments expose the readiness/liveness probes above, so `kubectl rollout status` reflects actual application health rather than just container start.
 
 ## Shadow deployment (traffic mirroring)
 
@@ -76,8 +146,8 @@ Both Deployments expose the readiness/liveness probes above, so `kubectl rollout
 
 Tagged releases (`vX.Y.Z`) are built and published automatically by [`.github/workflows/release.yml`](.github/workflows/release.yml):
 
-- The Docker image is built and pushed to the **GitHub Container Registry** at `ghcr.io/visheshrwl/io`, tagged with both the version and `latest`.
-- A **GitHub Release** is created with auto-generated notes from the commits since the previous tag.
+- Both images are built (one per service, via the `SERVICE` build arg) and pushed to the **GitHub Container Registry** as `ghcr.io/visheshrwl/io` and `ghcr.io/visheshrwl/pong-service`, each tagged with both the version and `latest`.
+- A **GitHub Release** is created with auto-generated notes from the commits since the previous tag, once both images are pushed.
 
 To cut a release:
 
@@ -86,20 +156,29 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Then point any Deployment's `image:` field at `ghcr.io/visheshrwl/io:0.1.0` instead of a locally-built tag.
+Then point each Deployment's `image:` field at its corresponding `ghcr.io/visheshrwl/<service>:0.1.0` instead of a locally-built tag.
 
 ## Project structure
 
 ```
 .
 ├── cmd/
-│   └── io/
-│       └── main.go                       # HTTP server: /ping, /health/*, /metrics
+│   ├── io/
+│   │   └── main.go                       # io: /ping, /peer/*, /health/*, /metrics
+│   └── pong-service/
+│       └── main.go                       # pong-service: /peer/*, /health/*, /metrics
+├── internal/
+│   ├── service/
+│   │   └── service.go                    # shared metrics store, health handlers, request/trace IDs
+│   └── peer/
+│       └── peer.go                       # peer Message/Client/Log used by both services
 ├── deploy/
 │   ├── kubernetes/
 │   │   ├── deployment-v1.yaml            # io-service-v1 Deployment
 │   │   ├── deployment-v2.yaml            # io-service-v2 Deployment
-│   │   └── service.yaml                  # ClusterIP Service
+│   │   ├── service.yaml                  # io-service ClusterIP Service
+│   │   ├── pong-service-deployment.yaml  # pong-service Deployment
+│   │   └── pong-service-service.yaml     # pong-service ClusterIP Service
 │   └── istio/
 │       ├── gateway.yaml                  # Istio Gateway
 │       ├── virtual-service.yaml          # Istio VirtualService (routing + mirroring)
@@ -111,8 +190,9 @@ Then point any Deployment's `image:` field at `ghcr.io/visheshrwl/io:0.1.0` inst
 │   └── kubernetes-learning-guide.md      # Detailed notes on the concepts behind each file
 ├── .github/
 │   └── workflows/
-│       └── release.yml                   # Tag-triggered image build + GitHub Release
-├── Dockerfile                            # Multi-stage build -> minimal Alpine runtime
+│       └── release.yml                   # Tag-triggered matrix image build + GitHub Release
+├── Dockerfile                            # Multi-stage build -> minimal Alpine runtime, shared by both services
+├── docker-compose.yml                    # Runs both services as separate containers locally
 └── go.mod
 ```
 

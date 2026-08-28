@@ -3,6 +3,10 @@
 # =====================================================================
 FROM golang:1.27.0-trixie AS builder
 
+# Which cmd/ binary to build - "io" or "pong-service". Both services share
+# this one Dockerfile since they live in the same Go module.
+ARG SERVICE=io
+
 WORKDIR /app
 
 # Copy dependency manifests first for efficient layer caching
@@ -16,7 +20,7 @@ COPY . .
 # - CGO_ENABLED=0 disables dynamic C links
 # - GOOS=linux targets Linux environment
 # - -ldflags="-w -s" strips debugging information to reduce size
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /out/server ./cmd/io
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /out/server ./cmd/${SERVICE}
 
 # =====================================================================
 # STAGE 2: Run the binary inside a minimal image

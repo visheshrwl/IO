@@ -1,22 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: io-service-v1
+  name: pong-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: io-service
-      version: v1
+      app: pong-service
   template:
     metadata:
       labels:
-        app: io-service
-        version: v1
+        app: pong-service
     spec:
       containers:
-        - name: io-service
-          image: io-v1:instrumented
+        - name: pong-service
+          image: pong-service:instrumented
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -28,7 +26,7 @@ spec:
             - name: APP_VERSION
               value: "v1"
             - name: PEER_URL
-              value: "http://pong-service"
+              value: "http://io-service"
           readinessProbe:
             httpGet:
               path: /health/ready
