@@ -75,8 +75,8 @@ The simplest way to see two real, separately-containered services talk to each o
 docker compose up --build
 curl -X POST localhost:8080/peer/trigger
 curl localhost:8080/peer/log
-curl localhost:8081/peer/log
-docker compose logs -f      # watch both containers log each hop of the exchange
+curl localhost:8091/peer/log   # pong-service is published on 8091 to avoid clashing with 8081 on some hosts
+docker compose logs -f         # watch both containers log each hop of the exchange
 ```
 
 ### Build and run a single image with Docker
