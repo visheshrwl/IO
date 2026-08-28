@@ -530,7 +530,7 @@
         }
 
         .live-node {
-            min-height: 82px;
+            min-height: 116px;
             padding: 12px 9px;
             border: 1px solid #547269;
             background: #20343a;
@@ -549,6 +549,13 @@
             color: #a9c6ba;
             font: 10px ui-monospace, SFMono-Regular, monospace;
             margin-top: 5px;
+        }
+
+        .live-evidence {
+            color: #d9f0e5;
+            font: 10px/1.35 ui-monospace, SFMono-Regular, monospace;
+            margin-top: 9px;
+            overflow-wrap: anywhere;
         }
 
         .live-node.active {
@@ -852,11 +859,13 @@
                     <div class="live-node" data-step="gateway"><strong>Istio Gateway</strong><small>routes to v1</small>
                     </div>
                     <div class="live-arrow" data-arrow="2">→</div>
-                    <div class="live-node" data-step="v1"><strong>Backend v1</strong><small>returns response</small>
+                    <div class="live-node" data-step="v1"><strong>Backend v1</strong><small>returns
+                            response</small><span class="live-evidence" id="v1Evidence">Waiting for live evidence</span>
                     </div>
                     <div class="live-arrow shadow" data-arrow="3">↘</div>
                     <div class="live-node shadow" data-step="v2"><strong>Backend v2</strong><small>shadow copy
-                            only</small></div>
+                            only</small><span class="live-evidence" id="v2Evidence">Waiting for shadow evidence</span>
+                    </div>
                 </div>
                 <div class="live-result" id="playResult">Ready. Choose a live scenario.</div>
             </section>
@@ -882,6 +891,15 @@
             } catch (error) { $('health').textContent = 'ERR'; $('healthText').textContent = error.message; }
         }
         async function refreshLogs() { try { $('logs').textContent = (await (await get(`/api/logs?selector=${encodeURIComponent(currentLog[0])}&container=${currentLog[1]}`)).json()).output; $('logTime').textContent = new Date().toLocaleTimeString(); } catch (error) { $('logs').textContent = error.message; } }
+        async function refreshMirrorEvidence() {
+            const [v1, v2] = await Promise.all([
+                get('/api/logs?selector=app%3Dio-service%2Cversion%3Dv1&container=io-service').then(response => response.json()),
+                get('/api/logs?selector=app%3Dio-service%2Cversion%3Dv2&container=io-service').then(response => response.json())
+            ]);
+            const latest = output => output.split('\n').filter(line => line.includes('path=/ping')).pop() || 'No /ping event yet';
+            $('v1Evidence').textContent = `${latest(v1.output)} | response source`;
+            $('v2Evidence').textContent = `${latest(v2.output)} | response discarded`;
+        }
         async function refreshPeer() { try { $('peerLog').textContent = JSON.stringify(await (await get(`/api/peer-log?service=${currentPeer}`)).json(), null, 2); } catch (error) { $('peerLog').textContent = error.message; } }
         async function refreshMetrics() { try { const text = await (await get('/api/metrics?service=io')).text(); $('metrics').innerHTML = text.split('\n').filter(line => line && !line.startsWith('#')).slice(-8).map(line => { const split = line.lastIndexOf(' '); return `<div class="metric"><span>${line.slice(0, split)}</span><b>${line.slice(split + 1)}</b></div>`; }).join('') || '<div class="metric">No metrics yet</div>'; } catch (error) { $('metrics').textContent = error.message; } }
         const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -909,7 +927,7 @@
                 setPlayStep('v2', 'shadow');
                 $('reply').textContent = reply;
                 $('playResult').textContent = `v1 answered: ${reply}  |  v2 received the shadow copy`;
-                await refreshEvidence();
+                await Promise.all([refreshEvidence(), refreshMirrorEvidence()]);
             } catch (error) {
                 $('playResult').textContent = `Request failed: ${error.message}`;
             } finally { button.disabled = false; }
@@ -933,7 +951,7 @@
                 $('playResult').textContent = `Exchange failed: ${error.message}`;
             } finally { button.disabled = false; }
         }
-        async function refreshEvidence() { await Promise.all([refreshStatus(), refreshLogs(), refreshPeer(), refreshMetrics()]); }
+        async function refreshEvidence() { await Promise.all([refreshStatus(), refreshLogs(), refreshPeer(), refreshMetrics(), refreshMirrorEvidence()]); }
         $('refresh').onclick = async () => { await refreshEvidence(); try { const response = await get('/api/traffic'); $('reply').textContent = await response.text(); } catch (error) { $('reply').textContent = error.message; } };
         $('trigger').onclick = async () => { $('reply').textContent = 'Dispatching asynchronous peer exchange...'; try { const response = await get('/api/trigger', { method: 'POST' }); $('reply').textContent = `Exchange dispatched (${response.status})`; setTimeout(refreshEvidence, 400); } catch (error) { $('reply').textContent = error.message; } };
         $('playPing').onclick = playMirroredRequest;
