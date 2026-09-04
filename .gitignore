@@ -1,1 +1,10 @@
 *.bak
+
+# Compiled service binaries (built into container images, never committed)
+/io
+/pong-service
+/notification-service
+/dashboard
+/server
+/out/
+*.exe
