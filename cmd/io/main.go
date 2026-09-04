@@ -69,6 +69,17 @@ func main() {
 		requestID := service.RequestID(r)
 		traceID := service.TraceID(r)
 		metrics.RecordHTTP(r.Method, r.URL.Path, version)
+		if version == "v2" && service.IsShadowRequest(r) {
+			log.Printf("shadow_request_suppressed path=%s request_id=%s trace_id=%s", r.URL.Path, requestID, traceID)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"status":     "shadowed",
+				"request_id": requestID,
+				"note":       "side effect suppressed for Istio mirror",
+			})
+			return
+		}
 
 		if !peerClient.Configured() {
 			log.Printf("peer_trigger_failed reason=peer_not_configured request_id=%s", requestID)
@@ -135,3 +146,4 @@ func main() {
 		log.Fatalf("server failed: %v", err)
 	}
 }
+

@@ -67,6 +67,10 @@ func main() {
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "acknowledged"})
 
+		if version == "v2" && service.IsShadowRequest(r) {
+			log.Printf("shadow_request_suppressed path=%s request_id=%s trace_id=%s", r.URL.Path, msg.RequestID, traceID)
+			return
+		}
 		go replyWithPing(peerClient, metrics, exchangeLog, msg.RequestID, traceID)
 	})
 

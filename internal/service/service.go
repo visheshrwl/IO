@@ -5,6 +5,7 @@ package service
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -20,6 +21,17 @@ type MetricsStore struct {
 	httpCounts map[string]uint64 // method|path|version
 	peerSent   map[string]uint64 // message type
 	peerRecv   map[string]uint64 // message type
+}
+
+// IsShadowRequest identifies requests mirrored by Istio, whose Host header
+// receives a -shadow suffix. Applications use this to suppress side effects
+// while still exercising request validation and response behavior.
+func IsShadowRequest(r *http.Request) bool {
+	host := strings.ToLower(r.Host)
+	if hostName, _, err := net.SplitHostPort(host); err == nil {
+		host = hostName
+	}
+	return strings.HasSuffix(host, "-shadow")
 }
 
 func NewMetricsStore() *MetricsStore {
