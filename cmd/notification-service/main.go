@@ -8,12 +8,15 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/service"
 )
@@ -81,9 +84,12 @@ func main() {
 	mux.HandleFunc("/notifications", s.notificationsHandler)
 	mux.HandleFunc("/notifications/", s.notificationHandler)
 
+	srvCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	port := envOr("PORT", "8080")
 	logger.Info("starting", "port", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := httpserver.Run(srvCtx, httpserver.Options{Addr: ":" + port, Handler: mux, Logger: logger}); err != nil {
 		fatal("http server", err)
 	}
 }

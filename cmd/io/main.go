@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/visheshrwl/io/internal/peer"
+	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/service"
 )
@@ -36,15 +39,17 @@ func main() {
 	peerClient := peer.NewClient(peerURL)
 	exchangeLog := peer.NewLog(20)
 
-	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = w.Write([]byte(metrics.Render(serviceName, version)))
 	})
 
-	http.HandleFunc("/health/live", service.LivenessHandler())
-	http.HandleFunc("/health/ready", service.ReadinessHandler(start, 2*time.Second))
+	mux.HandleFunc("/health/live", service.LivenessHandler())
+	mux.HandleFunc("/health/ready", service.ReadinessHandler(start, 2*time.Second))
 
-	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		requestID := service.RequestID(r)
 		traceID := service.TraceID(r)
 
@@ -63,7 +68,7 @@ func main() {
 	// peer replies with its own separate "ping" HTTP call back to /peer/ping
 	// below. The two hops are independent network round trips, not a single
 	// request/response.
-	http.HandleFunc("/peer/trigger", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/peer/trigger", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -116,7 +121,7 @@ func main() {
 	})
 
 	// /peer/ping receives the peer's reply to a pong this service sent.
-	http.HandleFunc("/peer/ping", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/peer/ping", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -139,14 +144,17 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "acknowledged"})
 	})
 
-	http.HandleFunc("/peer/log", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/peer/log", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(exchangeLog.Recent())
 	})
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	logger.Info("starting", "port", port, "peer_url", peerURL)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		logger.Error("server failed", "err", err)
+	if err := httpserver.Run(ctx, httpserver.Options{Addr: ":" + port, Handler: mux, Logger: logger}); err != nil {
+		logger.Error("server exited with error", "err", err)
 		os.Exit(1)
 	}
 }
