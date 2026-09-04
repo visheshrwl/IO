@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/visheshrwl/io/internal/peer"
+	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/service"
 )
 
@@ -27,6 +28,8 @@ func main() {
 	}
 
 	peerURL := os.Getenv("PEER_URL")
+
+	logger := logging.New(serviceName, version, os.Getenv("LOG_LEVEL"))
 
 	start := time.Now()
 	metrics := service.NewMetricsStore()
@@ -46,7 +49,7 @@ func main() {
 		traceID := service.TraceID(r)
 
 		metrics.RecordHTTP(r.Method, r.URL.Path, version)
-		log.Printf("app_version=%s path=%s method=%s request_id=%s trace_id=%s", version, r.URL.Path, r.Method, requestID, traceID)
+		slog.Info("handled request", "path", r.URL.Path, "method", r.Method, "request_id", requestID, "trace_id", traceID)
 
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("X-App-Version", version)
@@ -70,7 +73,7 @@ func main() {
 		traceID := service.TraceID(r)
 		metrics.RecordHTTP(r.Method, r.URL.Path, version)
 		if version == "v2" && service.IsShadowRequest(r) {
-			log.Printf("shadow_request_suppressed path=%s request_id=%s trace_id=%s", r.URL.Path, requestID, traceID)
+			slog.Info("shadow request suppressed", "path", r.URL.Path, "request_id", requestID, "trace_id", traceID)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(map[string]string{
@@ -82,7 +85,7 @@ func main() {
 		}
 
 		if !peerClient.Configured() {
-			log.Printf("peer_trigger_failed reason=peer_not_configured request_id=%s", requestID)
+			slog.Error("peer trigger failed", "reason", "peer_not_configured", "request_id", requestID)
 			http.Error(w, "PEER_URL is not configured", http.StatusInternalServerError)
 			return
 		}
@@ -93,14 +96,14 @@ func main() {
 		defer cancel()
 
 		if err := peerClient.Send(ctx, "/peer/pong", msg, requestID, traceID); err != nil {
-			log.Printf("peer_send_failed type=pong request_id=%s err=%v", requestID, err)
+			slog.Error("peer send failed", "type", "pong", "request_id", requestID, "err", err)
 			http.Error(w, "failed to reach peer: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 
 		metrics.RecordPeerSent("pong")
 		exchangeLog.Add(peer.Exchange{Message: msg, Direction: "sent", At: time.Now().UTC()})
-		log.Printf("peer_sent type=pong request_id=%s trace_id=%s", requestID, traceID)
+		slog.Info("peer message sent", "type", "pong", "request_id", requestID, "trace_id", traceID)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
@@ -130,7 +133,7 @@ func main() {
 
 		metrics.RecordPeerReceived("ping")
 		exchangeLog.Add(peer.Exchange{Message: msg, Direction: "received", At: time.Now().UTC()})
-		log.Printf("peer_received type=ping from=%s request_id=%s trace_id=%s round_trip_complete=true", msg.From, msg.RequestID, traceID)
+		slog.Info("peer message received", "type", "ping", "from", msg.From, "request_id", msg.RequestID, "trace_id", traceID, "round_trip_complete", true)
 
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "acknowledged"})
@@ -141,9 +144,9 @@ func main() {
 		_ = json.NewEncoder(w).Encode(exchangeLog.Recent())
 	})
 
-	log.Printf("starting service=%s app_version=%s port=%s peer_url=%q", serviceName, version, port, peerURL)
+	logger.Info("starting", "port", port, "peer_url", peerURL)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("server failed: %v", err)
+		logger.Error("server failed", "err", err)
+		os.Exit(1)
 	}
 }
-

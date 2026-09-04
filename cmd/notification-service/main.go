@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -15,8 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/service"
 )
+
+const serviceName = "notification-service"
 
 type notification struct {
 	ID        string    `json:"id"`
@@ -42,27 +44,34 @@ func main() {
 	databaseURL := envOr("DATABASE_URL", "postgres://postgres:postgres@postgres-17db:5432/notifications?sslmode=disable")
 	redisURL := envOr("REDIS_URL", "redis://redis:6379/0")
 
+	logger := logging.New(serviceName, envOr("APP_VERSION", "unknown"), os.Getenv("LOG_LEVEL"))
+
+	fatal := func(msg string, err error) {
+		logger.Error(msg, "err", err)
+		os.Exit(1)
+	}
+
 	db, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
-		log.Fatal(err)
+		fatal("connect to postgres", err)
 	}
 	defer db.Close()
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {
-		log.Fatal(err)
+		fatal("parse redis url", err)
 	}
 	redisClient := redis.NewClient(options)
 	defer redisClient.Close()
 	startupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if err := waitForDependencies(startupCtx, db, redisClient); err != nil {
-		log.Fatal(err)
+		fatal("wait for dependencies", err)
 	}
 	if _, err := db.Exec(ctx, `CREATE TABLE IF NOT EXISTS notifications (
 		id TEXT PRIMARY KEY, recipient TEXT NOT NULL, channel TEXT NOT NULL,
 		message TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`); err != nil {
-		log.Fatalf("create notifications table: %v", err)
+		fatal("create notifications table", err)
 	}
 
 	s := &server{db: db, redis: redisClient}
@@ -73,9 +82,9 @@ func main() {
 	mux.HandleFunc("/notifications/", s.notificationHandler)
 
 	port := envOr("PORT", "8080")
-	log.Printf("starting notification-service port=%s", port)
+	logger.Info("starting", "port", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatal(err)
+		fatal("http server", err)
 	}
 }
 
