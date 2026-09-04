@@ -119,9 +119,12 @@ func GenerateTraceID() string {
 	return fmt.Sprintf("trace-%d", time.Now().UnixNano())
 }
 
-// RequestID returns the inbound X-Request-ID header, generating one if absent.
+// RequestID returns the correlation ID for r. The middleware.RequestID
+// layer populates the X-Request-Id header (inbound value or a fresh UUID)
+// before any handler runs; the fallback is only hit in tests that bypass
+// the middleware chain.
 func RequestID(r *http.Request) string {
-	if id := r.Header.Get("X-Request-ID"); id != "" {
+	if id := r.Header.Get("X-Request-Id"); id != "" {
 		return id
 	}
 	return GenerateRequestID()

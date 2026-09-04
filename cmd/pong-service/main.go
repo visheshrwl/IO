@@ -15,6 +15,7 @@ import (
 	"github.com/visheshrwl/io/internal/platform/health"
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
+	"github.com/visheshrwl/io/internal/platform/middleware"
 	"github.com/visheshrwl/io/internal/service"
 )
 
@@ -103,10 +104,16 @@ func main() {
 
 	probe.Ready()
 
+	handler := middleware.Chain(mux,
+		middleware.Recover(logger),
+		middleware.RequestID(),
+		middleware.AccessLog(logger),
+	)
+
 	logger.Info("starting", "port", port, "peer_url", peerURL)
 	err = httpserver.Run(ctx, httpserver.Options{
 		Addr:           ":" + port,
-		Handler:        mux,
+		Handler:        handler,
 		Logger:         logger,
 		BeforeShutdown: probe.Draining(cfg.DrainDelay),
 	})

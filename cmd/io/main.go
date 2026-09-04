@@ -16,6 +16,7 @@ import (
 	"github.com/visheshrwl/io/internal/platform/health"
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
+	"github.com/visheshrwl/io/internal/platform/middleware"
 	"github.com/visheshrwl/io/internal/service"
 )
 
@@ -65,7 +66,6 @@ func main() {
 		traceID := service.TraceID(r)
 
 		metrics.RecordHTTP(r.Method, r.URL.Path, version)
-		slog.Info("handled request", "path", r.URL.Path, "method", r.Method, "request_id", requestID, "trace_id", traceID)
 
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("X-App-Version", version)
@@ -165,10 +165,16 @@ func main() {
 
 	probe.Ready()
 
+	handler := middleware.Chain(mux,
+		middleware.Recover(logger),
+		middleware.RequestID(),
+		middleware.AccessLog(logger),
+	)
+
 	logger.Info("starting", "port", port, "peer_url", peerURL)
 	err = httpserver.Run(ctx, httpserver.Options{
 		Addr:           ":" + port,
-		Handler:        mux,
+		Handler:        handler,
 		Logger:         logger,
 		BeforeShutdown: probe.Draining(cfg.DrainDelay),
 	})
