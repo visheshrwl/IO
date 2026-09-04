@@ -2,8 +2,8 @@
 # scoped to gateways: [io-gateway], so its rule only applies to traffic
 # entering through the Istio ingress gateway - it never touches pod-to-pod
 # calls, e.g. pong-service's callback to io-service. This VirtualService
-# extends the same v1-live / v2-shadow policy to mesh-internal traffic, so
-# no real dependency inside the mesh can ever be served by v2.
+# extends the same v1-live / v2-shadow policy to mesh-internal traffic. The
+# v2 application suppresses side effects on Istio mirror requests.
 #
 # It's intentionally a separate object rather than adding "mesh" to
 # virtual-service.yaml's gateways list: that VirtualService's hosts: ["*"]

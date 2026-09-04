@@ -1,42 +1,48 @@
+# syntax=docker/dockerfile:1
+
 # =====================================================================
-# STAGE 1: Build the Go binary
+# Build stage
 # =====================================================================
 FROM golang:1.27.0-trixie AS builder
 
-# Which cmd/ binary to build - "io" or "pong-service". Both services share
-# this one Dockerfile since they live in the same Go module.
+# Which cmd/ binary to build. All services share this Dockerfile since they
+# live in the same Go module.
 ARG SERVICE=io
+# Stamped into the image labels; also handy to pass through to the binary.
+ARG VERSION=dev
 
-WORKDIR /app
+WORKDIR /src
 
-# Copy dependency manifests first for efficient layer caching
-COPY go.mod ./
-RUN go mod download
+# Dependency manifests first, so `go mod download` is only re-run when they
+# change. go.sum must be present for a verifiable, reproducible download.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-# Copy the entire source code
 COPY . .
 
-# Build the binary with flags optimized for a lightweight runtime container:
-# - CGO_ENABLED=0 disables dynamic C links
-# - GOOS=linux targets Linux environment
-# - -ldflags="-w -s" strips debugging information to reduce size
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /out/server ./cmd/${SERVICE}
+# CGO off => a static binary that runs on a distroless/scratch base.
+# -trimpath keeps build-host paths out of the binary; -w -s drop DWARF and
+# the symbol table. Module and build caches are mounted, not baked in.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux \
+    go build -trimpath -ldflags="-w -s" -o /out/service ./cmd/${SERVICE}
 
 # =====================================================================
-# STAGE 2: Run the binary inside a minimal image
+# Runtime stage — distroless: no shell, no package manager, runs as a
+# non-root user (uid 65532) out of the box.
 # =====================================================================
-FROM alpine:3.20
+FROM gcr.io/distroless/static-debian12:nonroot
 
-# Create a non-root user for security
-RUN adduser -D -g '' appuser
+ARG SERVICE
+ARG VERSION
+LABEL org.opencontainers.image.title="${SERVICE}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/visheshrwl/IO"
 
-WORKDIR /app
-
-# Copy the compiled binary from the builder stage
-COPY --from=builder /out/server .
-
-USER appuser
+COPY --from=builder /out/service /service
 
 EXPOSE 8080
-
-CMD ["./server"]
+USER nonroot:nonroot
+ENTRYPOINT ["/service"]
