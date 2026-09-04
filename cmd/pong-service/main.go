@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/visheshrwl/io/internal/peer"
+	"github.com/visheshrwl/io/internal/platform/health"
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/service"
@@ -33,10 +34,10 @@ func main() {
 
 	logger := logging.New(serviceName, version, os.Getenv("LOG_LEVEL"))
 
-	start := time.Now()
 	metrics := service.NewMetricsStore()
 	peerClient := peer.NewClient(peerURL)
 	exchangeLog := peer.NewLog(20)
+	probe := health.New()
 
 	mux := http.NewServeMux()
 
@@ -45,8 +46,8 @@ func main() {
 		_, _ = w.Write([]byte(metrics.Render(serviceName, version)))
 	})
 
-	mux.HandleFunc("/health/live", service.LivenessHandler())
-	mux.HandleFunc("/health/ready", service.ReadinessHandler(start, 2*time.Second))
+	mux.HandleFunc("/health/live", probe.LiveHandler())
+	mux.HandleFunc("/health/ready", probe.ReadyHandler())
 
 	// /peer/pong receives a "pong" from the peer, acknowledges it
 	// immediately, then replies with its own independent "ping" HTTP call
@@ -90,8 +91,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	probe.Ready()
+
 	logger.Info("starting", "port", port, "peer_url", peerURL)
-	if err := httpserver.Run(ctx, httpserver.Options{Addr: ":" + port, Handler: mux, Logger: logger}); err != nil {
+	err := httpserver.Run(ctx, httpserver.Options{
+		Addr:           ":" + port,
+		Handler:        mux,
+		Logger:         logger,
+		BeforeShutdown: probe.Draining(health.DefaultDrainDelay),
+	})
+	if err != nil {
 		logger.Error("server exited with error", "err", err)
 		os.Exit(1)
 	}

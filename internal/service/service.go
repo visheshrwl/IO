@@ -1,6 +1,6 @@
 // Package service provides the HTTP scaffolding shared by every binary in
-// this repo: request/trace IDs, liveness/readiness probes, and Prometheus
-// counters. Each cmd/ binary wires these into its own routes.
+// this repo: request/trace IDs and Prometheus counters. Each cmd/ binary
+// wires these into its own routes.
 package service
 
 import (
@@ -133,25 +133,4 @@ func TraceID(r *http.Request) string {
 		return id
 	}
 	return GenerateTraceID()
-}
-
-// LivenessHandler always reports healthy once the process is up.
-func LivenessHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}
-}
-
-// ReadinessHandler reports unready until warmup has elapsed since start.
-func ReadinessHandler(start time.Time, warmup time.Duration) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if time.Since(start) < warmup {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("warming up"))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
-	}
 }

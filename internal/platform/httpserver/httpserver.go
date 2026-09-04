@@ -41,6 +41,12 @@ type Options struct {
 	// ShutdownTimeout bounds how long Run waits for in-flight requests to
 	// finish after the context is cancelled before giving up.
 	ShutdownTimeout time.Duration
+
+	// BeforeShutdown runs once the context is cancelled, before the server
+	// stops accepting connections. Use it to flip readiness to draining and
+	// pause long enough for Kubernetes to remove the pod from the Service
+	// endpoints, so no new request is routed here mid-shutdown.
+	BeforeShutdown func()
 }
 
 func (o *Options) applyDefaults() {
@@ -99,6 +105,10 @@ func Run(ctx context.Context, opts Options) error {
 		return nil
 	case <-ctx.Done():
 		opts.Logger.Info("shutdown requested, draining connections", "timeout", opts.ShutdownTimeout)
+	}
+
+	if opts.BeforeShutdown != nil {
+		opts.BeforeShutdown()
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), opts.ShutdownTimeout)

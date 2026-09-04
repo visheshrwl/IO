@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/visheshrwl/io/internal/platform/health"
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/service"
@@ -77,19 +78,32 @@ func main() {
 		fatal("create notifications table", err)
 	}
 
+	probe := health.New(
+		health.Check{Name: "postgres", Func: db.Ping},
+		health.Check{Name: "redis", Func: func(ctx context.Context) error { return redisClient.Ping(ctx).Err() }},
+	)
+
 	s := &server{db: db, redis: redisClient}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health/live", liveHandler)
-	mux.HandleFunc("/health/ready", s.readyHandler)
+	mux.HandleFunc("/health/live", probe.LiveHandler())
+	mux.HandleFunc("/health/ready", probe.ReadyHandler())
 	mux.HandleFunc("/notifications", s.notificationsHandler)
 	mux.HandleFunc("/notifications/", s.notificationHandler)
 
 	srvCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	probe.Ready()
+
 	port := envOr("PORT", "8080")
 	logger.Info("starting", "port", port)
-	if err := httpserver.Run(srvCtx, httpserver.Options{Addr: ":" + port, Handler: mux, Logger: logger}); err != nil {
+	err = httpserver.Run(srvCtx, httpserver.Options{
+		Addr:           ":" + port,
+		Handler:        mux,
+		Logger:         logger,
+		BeforeShutdown: probe.Draining(health.DefaultDrainDelay),
+	})
+	if err != nil {
 		fatal("http server", err)
 	}
 }
@@ -155,22 +169,6 @@ func (s *server) notificationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(n)
-}
-
-func (s *server) readyHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	if err := s.db.Ping(ctx); err != nil || s.redis.Ping(ctx).Err() != nil {
-		http.Error(w, "dependencies unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ready"))
-}
-
-func liveHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
 }
 
 func waitForDependencies(ctx context.Context, db *pgxpool.Pool, redisClient *redis.Client) error {
