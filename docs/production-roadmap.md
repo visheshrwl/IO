@@ -47,35 +47,38 @@ package is removed — inter-service communication is gRPC + events.
 Milestone 1 is domain-agnostic and starts now. Milestone 3 (the domain reframe)
 needs your sign-off before it begins.
 
-### M1 — Runtime hardening foundation `in progress`
+### M1 — Runtime hardening foundation `done`
 
-Everything later builds on this. No domain changes.
+Everything later builds on this. No domain changes. Shipped:
 
-1. `internal/platform/httpserver`: explicit `*http.Server` with `ReadTimeout`,
-   `ReadHeaderTimeout`, `WriteTimeout`, `IdleTimeout`; a per-service
-   `*http.ServeMux` instead of `http.DefaultServeMux`.
-2. Graceful shutdown: `signal.NotifyContext` on `SIGTERM`/`SIGINT`,
-   `server.Shutdown` with a drain deadline; readiness reports **draining** so
-   Kubernetes removes the pod from endpoints before connections close.
-3. `internal/platform/config`: one typed, validated config struct per service,
-   parsed at startup, fails fast with a precise message. No scattered
-   `os.Getenv`.
-4. `log/slog` JSON logging; a request-scoped logger carrying the correlation ID;
-   every `log.Printf` replaced.
-5. Correlation IDs: real UUIDs; middleware reads or generates `X-Request-Id`,
-   puts it on the context and the logger, echoes it on the response.
-6. HTTP middleware chain as composable `func(http.Handler) http.Handler`:
-   panic recovery → request log → metrics → correlation.
-7. RFC 9457 `application/problem+json` error responses for the REST edge.
-8. First tests: table-driven `httptest` handler tests, config validation tests,
-   middleware tests. `go test ./...` green.
-9. `Makefile`: `build`, `test`, `lint`, `run`, `compose-up`, `tidy`.
-10. PR CI workflow (separate from `release.yml`): `go vet`, `golangci-lint`,
-    `govulncheck`, `go test -race -cover`, build every image.
-11. Dockerfile hardening: `COPY go.sum`, build cache mounts, `-trimpath`,
-    version stamping via `-ldflags -X`, distroless/static base pinned by digest,
-    numeric non-root UID.
-12. Readiness gated on real dependency checks, not a fixed 2-second timer.
+1. `internal/platform/logging` — `log/slog` JSON on stderr, tagged with
+   service and version; every `log.Printf` / `log.Fatal` replaced.
+2. `internal/platform/httpserver` — explicit `*http.Server` with
+   read/read-header/write/idle timeouts; a per-service `*http.ServeMux`;
+   `signal.NotifyContext` + `server.Shutdown` with a drain deadline.
+3. `internal/platform/health` — a `Probe` that starts not-ready, splits
+   liveness from readiness, runs dependency checks, and on `SIGTERM` reports
+   **draining** and pauses so Kubernetes de-registers the pod before
+   connections close. The fixed 2-second warmup timer is gone.
+4. `internal/platform/config` — one typed, validated struct per service;
+   the `Loader` accumulates every error and fails fast at boot.
+   notification-service now *requires* `DATABASE_URL` / `REDIS_URL`.
+5. `internal/platform/middleware` — composable `Chain` of `RequestID`
+   (UUID correlation IDs on context + request + response headers),
+   `Recover` (panic → logged 500), `AccessLog` (one structured line +
+   request-scoped logger).
+6. `internal/platform/problem` — RFC 9457 `application/problem+json` on the
+   notification-service edge.
+7. Table-driven `-race` tests for every platform package.
+8. `Makefile` (`build`/`test`/`lint`/`vet`/`fmt-check`/`tidy`/`vulncheck`/
+   `run-*`/`compose-*`) and a PR CI workflow (gofmt, vet, build, race tests,
+   staticcheck, govulncheck, `go mod tidy` gate, docker build per service).
+9. Dockerfile hardened onto `distroless/static:nonroot` with cache mounts,
+   `-trimpath`, `go.sum`, and OCI labels.
+
+Deferred from M1: extracting io/pong handlers out of `main` for testing
+(they are replaced wholesale in M3/M4); base-image digest pinning (M8);
+`-ldflags -X` version stamping.
 
 ### M2 — Explicit contracts at the edge
 
