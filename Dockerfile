@@ -3,8 +3,8 @@
 # =====================================================================
 FROM golang:1.27.0-trixie AS builder
 
-# Which cmd/ binary to build - "io" or "pong-service". Both services share
-# this one Dockerfile since they live in the same Go module.
+# Which cmd/ binary to build. All services share this Dockerfile since they
+# live in the same Go module.
 ARG SERVICE=io
 
 WORKDIR /app
