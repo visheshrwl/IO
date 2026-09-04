@@ -1,6 +1,7 @@
 *.bak
 
 # Compiled service binaries (built into container images, never committed)
+/bin/
 /io
 /pong-service
 /notification-service
@@ -8,3 +9,4 @@
 /server
 /out/
 *.exe
+coverage.out
