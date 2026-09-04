@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/visheshrwl/io/internal/peer"
+	"github.com/visheshrwl/io/internal/platform/config"
 	"github.com/visheshrwl/io/internal/platform/health"
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
@@ -19,20 +20,29 @@ import (
 
 const serviceName = "pong-service"
 
+type appConfig struct {
+	config.Base
+	PeerURL string
+}
+
+func loadConfig() (appConfig, error) {
+	l := &config.Loader{}
+	c := appConfig{Base: config.LoadBase(l, serviceName)}
+	c.PeerURL = l.String("PEER_URL", "")
+	return c, l.Err()
+}
+
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg, err := loadConfig()
+	if err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
 	}
 
-	version := os.Getenv("APP_VERSION")
-	if version == "" {
-		version = "unknown"
-	}
-
-	peerURL := os.Getenv("PEER_URL")
-
-	logger := logging.New(serviceName, version, os.Getenv("LOG_LEVEL"))
+	logger := logging.New(cfg.ServiceName, cfg.Version, cfg.LogLevel)
+	version := cfg.Version
+	port := cfg.Port
+	peerURL := cfg.PeerURL
 
 	metrics := service.NewMetricsStore()
 	peerClient := peer.NewClient(peerURL)
@@ -94,11 +104,11 @@ func main() {
 	probe.Ready()
 
 	logger.Info("starting", "port", port, "peer_url", peerURL)
-	err := httpserver.Run(ctx, httpserver.Options{
+	err = httpserver.Run(ctx, httpserver.Options{
 		Addr:           ":" + port,
 		Handler:        mux,
 		Logger:         logger,
-		BeforeShutdown: probe.Draining(health.DefaultDrainDelay),
+		BeforeShutdown: probe.Draining(cfg.DrainDelay),
 	})
 	if err != nil {
 		logger.Error("server exited with error", "err", err)

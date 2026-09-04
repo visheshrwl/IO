@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/visheshrwl/io/internal/platform/config"
 	"github.com/visheshrwl/io/internal/platform/health"
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
@@ -23,6 +25,20 @@ import (
 )
 
 const serviceName = "notification-service"
+
+type appConfig struct {
+	config.Base
+	DatabaseURL string
+	RedisURL    string
+}
+
+func loadConfig() (appConfig, error) {
+	l := &config.Loader{}
+	c := appConfig{Base: config.LoadBase(l, serviceName)}
+	c.DatabaseURL = l.Require("DATABASE_URL")
+	c.RedisURL = l.Require("REDIS_URL")
+	return c, l.Err()
+}
 
 type notification struct {
 	ID        string    `json:"id"`
@@ -45,22 +61,26 @@ type server struct {
 
 func main() {
 	ctx := context.Background()
-	databaseURL := envOr("DATABASE_URL", "postgres://postgres:postgres@postgres-17db:5432/notifications?sslmode=disable")
-	redisURL := envOr("REDIS_URL", "redis://redis:6379/0")
 
-	logger := logging.New(serviceName, envOr("APP_VERSION", "unknown"), os.Getenv("LOG_LEVEL"))
+	cfg, err := loadConfig()
+	if err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+
+	logger := logging.New(cfg.ServiceName, cfg.Version, cfg.LogLevel)
 
 	fatal := func(msg string, err error) {
 		logger.Error(msg, "err", err)
 		os.Exit(1)
 	}
 
-	db, err := pgxpool.New(ctx, databaseURL)
+	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		fatal("connect to postgres", err)
 	}
 	defer db.Close()
-	options, err := redis.ParseURL(redisURL)
+	options, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
 		fatal("parse redis url", err)
 	}
@@ -95,13 +115,12 @@ func main() {
 
 	probe.Ready()
 
-	port := envOr("PORT", "8080")
-	logger.Info("starting", "port", port)
+	logger.Info("starting", "port", cfg.Port)
 	err = httpserver.Run(srvCtx, httpserver.Options{
-		Addr:           ":" + port,
+		Addr:           ":" + cfg.Port,
 		Handler:        mux,
 		Logger:         logger,
-		BeforeShutdown: probe.Draining(health.DefaultDrainDelay),
+		BeforeShutdown: probe.Draining(cfg.DrainDelay),
 	})
 	if err != nil {
 		fatal("http server", err)
@@ -188,13 +207,6 @@ func waitForDependencies(ctx context.Context, db *pgxpool.Pool, redisClient *red
 		case <-time.After(2 * time.Second):
 		}
 	}
-}
-
-func envOr(name, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return fallback
 }
 
 func newID() (string, error) {
