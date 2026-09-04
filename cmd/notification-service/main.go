@@ -22,6 +22,7 @@ import (
 	"github.com/visheshrwl/io/internal/platform/httpserver"
 	"github.com/visheshrwl/io/internal/platform/logging"
 	"github.com/visheshrwl/io/internal/platform/middleware"
+	"github.com/visheshrwl/io/internal/platform/problem"
 	"github.com/visheshrwl/io/internal/service"
 )
 
@@ -136,65 +137,74 @@ func main() {
 
 func (s *server) notificationsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		problem.Write(w, r, http.StatusMethodNotAllowed, "use POST to create a notification")
 		return
 	}
+	log := middleware.LoggerFrom(r.Context())
+
 	var input createRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || strings.TrimSpace(input.Recipient) == "" || strings.TrimSpace(input.Channel) == "" || strings.TrimSpace(input.Message) == "" {
-		http.Error(w, "recipient, channel, and message are required", http.StatusBadRequest)
+		problem.Write(w, r, http.StatusBadRequest, "recipient, channel, and message are required")
 		return
 	}
 
 	id, err := newID()
 	if err != nil {
-		http.Error(w, "failed to create notification", http.StatusInternalServerError)
+		log.Error("generate notification id", "err", err)
+		problem.Write(w, r, http.StatusInternalServerError, "could not create notification")
 		return
 	}
 	createdAt := time.Now().UTC()
+	n := notification{ID: id, Recipient: input.Recipient, Channel: input.Channel, Message: input.Message, CreatedAt: createdAt}
+
 	if service.IsShadowRequest(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(notification{ID: id, Recipient: input.Recipient, Channel: input.Channel, Message: input.Message, CreatedAt: createdAt})
+		writeJSON(w, http.StatusAccepted, n)
 		return
 	}
+
 	_, err = s.db.Exec(r.Context(), `INSERT INTO notifications (id, recipient, channel, message, created_at) VALUES ($1, $2, $3, $4, $5)`, id, input.Recipient, input.Channel, input.Message, createdAt)
 	if err != nil {
-		http.Error(w, "failed to persist notification", http.StatusInternalServerError)
+		log.Error("persist notification", "err", err)
+		problem.Write(w, r, http.StatusInternalServerError, "could not persist notification")
 		return
 	}
-	n := notification{ID: id, Recipient: input.Recipient, Channel: input.Channel, Message: input.Message, CreatedAt: createdAt}
 	payload, _ := json.Marshal(n)
 	if err := s.redis.Publish(r.Context(), "notifications", payload).Err(); err != nil {
-		http.Error(w, "notification persisted but publish failed", http.StatusBadGateway)
+		log.Error("publish notification", "err", err, "notification_id", id)
+		problem.Write(w, r, http.StatusBadGateway, "notification persisted but could not be published")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(n)
+	writeJSON(w, http.StatusAccepted, n)
 }
 
 func (s *server) notificationHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		problem.Write(w, r, http.StatusMethodNotAllowed, "use GET to read a notification")
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/notifications/")
 	if id == "" || strings.Contains(id, "/") {
-		http.Error(w, "invalid notification id", http.StatusBadRequest)
+		problem.Write(w, r, http.StatusBadRequest, "notification id must be a single path segment")
 		return
 	}
 	var n notification
 	err := s.db.QueryRow(r.Context(), `SELECT id, recipient, channel, message, created_at FROM notifications WHERE id = $1`, id).Scan(&n.ID, &n.Recipient, &n.Channel, &n.Message, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		http.NotFound(w, r)
+		problem.Write(w, r, http.StatusNotFound, "no notification with that id")
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to read notification", http.StatusInternalServerError)
+		middleware.LoggerFrom(r.Context()).Error("read notification", "err", err, "notification_id", id)
+		problem.Write(w, r, http.StatusInternalServerError, "could not read notification")
 		return
 	}
+	writeJSON(w, http.StatusOK, n)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(n)
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func waitForDependencies(ctx context.Context, db *pgxpool.Pool, redisClient *redis.Client) error {
