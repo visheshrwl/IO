@@ -103,7 +103,7 @@ docker build --build-arg SERVICE=pong-service -t pong-service:latest .
 docker run -p 8081:8080 -e PEER_URL=http://host.docker.internal:8080 pong-service:latest
 ```
 
-The image is a multi-stage build: compiled with `golang:1.27.0-trixie`, then run from a minimal `alpine:3.20` image as a non-root user.
+The image is a multi-stage build: compiled with `golang:1.27.0-trixie` (module and build caches mounted, `-trimpath`, static `CGO_ENABLED=0` binary), then run from `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, non-root uid 65532. Pass `--build-arg VERSION=<x>` to stamp the image labels.
 
 ## Kubernetes deployment
 
