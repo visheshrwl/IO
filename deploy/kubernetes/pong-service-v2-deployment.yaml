@@ -1,31 +1,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: pong-service
+  name: pong-service-v2
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: pong-service
+      version: v2
   template:
     metadata:
       labels:
         app: pong-service
-        version: v1
+        version: v2
     spec:
       containers:
         - name: pong-service
-          image: pong-service:local-20260828
+          image: pong-service-v2:local
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
-              protocol: TCP
           env:
             - name: PORT
               value: "8080"
             - name: APP_VERSION
-              value: "v1"
+              value: "v2"
             - name: PEER_URL
               value: "http://io-service"
           readinessProbe:

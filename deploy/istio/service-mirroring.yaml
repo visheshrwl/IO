@@ -1,0 +1,75 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: service-mirroring
+spec:
+  host: pong-service
+  subsets:
+    - name: v1
+      labels:
+        app: pong-service
+        version: v1
+    - name: v2
+      labels:
+        app: pong-service
+        version: v2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: pong-service-mirroring
+spec:
+  hosts:
+    - pong-service
+  gateways:
+    - mesh
+  http:
+    - route:
+        - destination:
+            host: pong-service
+            subset: v1
+            port:
+              number: 80
+      mirror:
+        host: pong-service
+        subset: v2
+      mirrorPercentage:
+        value: 100.0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: notification-service-mirroring
+spec:
+  host: notification-service
+  subsets:
+    - name: v1
+      labels:
+        app: notification-service
+        version: v1
+    - name: v2
+      labels:
+        app: notification-service
+        version: v2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: notification-service-mirroring
+spec:
+  hosts:
+    - notification-service
+  gateways:
+    - mesh
+  http:
+    - route:
+        - destination:
+            host: notification-service
+            subset: v1
+            port:
+              number: 80
+      mirror:
+        host: notification-service
+        subset: v2
+      mirrorPercentage:
+        value: 100.0

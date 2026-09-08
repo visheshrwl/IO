@@ -3,48 +3,68 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/visheshrwl/io/internal/peer"
+	"github.com/visheshrwl/io/internal/platform/config"
+	"github.com/visheshrwl/io/internal/platform/health"
+	"github.com/visheshrwl/io/internal/platform/httpserver"
+	"github.com/visheshrwl/io/internal/platform/logging"
+	"github.com/visheshrwl/io/internal/platform/middleware"
 	"github.com/visheshrwl/io/internal/service"
 )
 
 const serviceName = "pong-service"
 
+type appConfig struct {
+	config.Base
+	PeerURL string
+}
+
+func loadConfig() (appConfig, error) {
+	l := &config.Loader{}
+	c := appConfig{Base: config.LoadBase(l, serviceName)}
+	c.PeerURL = l.String("PEER_URL", "")
+	return c, l.Err()
+}
+
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg, err := loadConfig()
+	if err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
 	}
 
-	version := os.Getenv("APP_VERSION")
-	if version == "" {
-		version = "unknown"
-	}
+	logger := logging.New(cfg.ServiceName, cfg.Version, cfg.LogLevel)
+	version := cfg.Version
+	port := cfg.Port
+	peerURL := cfg.PeerURL
 
-	peerURL := os.Getenv("PEER_URL")
-
-	start := time.Now()
 	metrics := service.NewMetricsStore()
 	peerClient := peer.NewClient(peerURL)
 	exchangeLog := peer.NewLog(20)
+	probe := health.New()
 
-	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = w.Write([]byte(metrics.Render(serviceName, version)))
 	})
 
-	http.HandleFunc("/health/live", service.LivenessHandler())
-	http.HandleFunc("/health/ready", service.ReadinessHandler(start, 2*time.Second))
+	mux.HandleFunc("/health/live", probe.LiveHandler())
+	mux.HandleFunc("/health/ready", probe.ReadyHandler())
 
 	// /peer/pong receives a "pong" from the peer, acknowledges it
 	// immediately, then replies with its own independent "ping" HTTP call
 	// back to the peer's /peer/ping — fired in a goroutine so the ack
 	// returned here isn't blocked on that second network round trip.
-	http.HandleFunc("/peer/pong", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/peer/pong", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -61,29 +81,51 @@ func main() {
 
 		metrics.RecordPeerReceived("pong")
 		exchangeLog.Add(peer.Exchange{Message: msg, Direction: "received", At: time.Now().UTC()})
-		log.Printf("peer_received type=pong from=%s request_id=%s trace_id=%s", msg.From, msg.RequestID, traceID)
+		slog.Info("peer message received", "type", "pong", "from", msg.From, "request_id", msg.RequestID, "trace_id", traceID)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "acknowledged"})
 
+		if version == "v2" && service.IsShadowRequest(r) {
+			slog.Info("shadow request suppressed", "path", r.URL.Path, "request_id", msg.RequestID, "trace_id", traceID)
+			return
+		}
 		go replyWithPing(peerClient, metrics, exchangeLog, msg.RequestID, traceID)
 	})
 
-	http.HandleFunc("/peer/log", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/peer/log", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(exchangeLog.Recent())
 	})
 
-	log.Printf("starting service=%s app_version=%s port=%s peer_url=%q", serviceName, version, port, peerURL)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("server failed: %v", err)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	probe.Ready()
+
+	handler := middleware.Chain(mux,
+		middleware.Recover(logger),
+		middleware.RequestID(),
+		middleware.AccessLog(logger),
+	)
+
+	logger.Info("starting", "port", port, "peer_url", peerURL)
+	err = httpserver.Run(ctx, httpserver.Options{
+		Addr:           ":" + port,
+		Handler:        handler,
+		Logger:         logger,
+		BeforeShutdown: probe.Draining(cfg.DrainDelay),
+	})
+	if err != nil {
+		logger.Error("server exited with error", "err", err)
+		os.Exit(1)
 	}
 }
 
 func replyWithPing(peerClient *peer.Client, metrics *service.MetricsStore, exchangeLog *peer.Log, requestID, traceID string) {
 	if !peerClient.Configured() {
-		log.Printf("peer_send_failed type=ping reason=peer_not_configured request_id=%s", requestID)
+		slog.Error("peer send failed", "type", "ping", "reason", "peer_not_configured", "request_id", requestID)
 		return
 	}
 
@@ -93,11 +135,11 @@ func replyWithPing(peerClient *peer.Client, metrics *service.MetricsStore, excha
 	defer cancel()
 
 	if err := peerClient.Send(ctx, "/peer/ping", reply, requestID, traceID); err != nil {
-		log.Printf("peer_send_failed type=ping request_id=%s err=%v", requestID, err)
+		slog.Error("peer send failed", "type", "ping", "request_id", requestID, "err", err)
 		return
 	}
 
 	metrics.RecordPeerSent("ping")
 	exchangeLog.Add(peer.Exchange{Message: reply, Direction: "sent", At: time.Now().UTC()})
-	log.Printf("peer_sent type=ping request_id=%s trace_id=%s", requestID, traceID)
+	slog.Info("peer message sent", "type", "ping", "request_id", requestID, "trace_id", traceID)
 }

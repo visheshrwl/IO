@@ -7,6 +7,8 @@ A pair of minimal Go HTTP services used as a hands-on sandbox for Kubernetes and
 
 Both are separate binaries, separate container images, and separate Kubernetes Deployments/Services — they only ever talk to each other over HTTP via `PEER_URL`, never through an in-process call, so the exchange between them reflects genuine distributed communication (DNS-based service discovery in-cluster, or two independent local processes when run outside one).
 
+`notification-service` accepts notifications over HTTP, stores them durably in PostgreSQL 17, and publishes each accepted notification on the Redis `notifications` channel for downstream consumers.
+
 ## Endpoints
 
 ### `io`
@@ -29,6 +31,16 @@ Both are separate binaries, separate container images, and separate Kubernetes D
 | `GET /peer/log`   | Last 20 sent/received peer messages, most recent first |
 | `GET /health/live`, `GET /health/ready` | Same probes as `io` |
 | `GET /metrics`    | Same metric families as `io`, labeled `service="pong-service"` |
+
+### `notification-service`
+
+| Path | Purpose |
+|------|---------|
+| `POST /notifications` | Stores and publishes a notification; returns `202 Accepted` with its ID |
+| `GET /notifications/<id>` | Returns a stored notification |
+| `GET /health/live`, `GET /health/ready` | Process and dependency health probes |
+
+Create one with `curl -X POST -H 'Content-Type: application/json' -d '{"recipient":"user-1","channel":"email","message":"Build complete"}' http://localhost:8082/notifications`.
 
 Every `/ping` response includes `X-App-Version`, `X-Request-ID`, and `X-Trace-ID` headers, and is logged server-side with the same fields — useful for confirming which version actually served a request when traffic is being split or mirrored.
 
@@ -91,7 +103,7 @@ docker build --build-arg SERVICE=pong-service -t pong-service:latest .
 docker run -p 8081:8080 -e PEER_URL=http://host.docker.internal:8080 pong-service:latest
 ```
 
-The image is a multi-stage build: compiled with `golang:1.27.0-trixie`, then run from a minimal `alpine:3.20` image as a non-root user.
+The image is a multi-stage build: compiled with `golang:1.27.0-trixie` (module and build caches mounted, `-trimpath`, static `CGO_ENABLED=0` binary), then run from `gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager, non-root uid 65532. Pass `--build-arg VERSION=<x>` to stamp the image labels.
 
 ## Kubernetes deployment
 
@@ -104,6 +116,9 @@ Manifests are split by concern so each can be applied/edited independently:
 | [`deploy/kubernetes/service.yaml`](deploy/kubernetes/service.yaml) | `io-service` ClusterIP Service, selects both versions |
 | [`deploy/kubernetes/pong-service-deployment.yaml`](deploy/kubernetes/pong-service-deployment.yaml) | `pong-service` Deployment (1 replica), `PEER_URL=http://io-service` |
 | [`deploy/kubernetes/pong-service-service.yaml`](deploy/kubernetes/pong-service-service.yaml) | `pong-service` ClusterIP Service |
+| [`deploy/kubernetes/postgres-17db.yaml`](deploy/kubernetes/postgres-17db.yaml) | PostgreSQL 17 Deployment, Service, Secret, and 2Gi PVC |
+| [`deploy/kubernetes/redis.yaml`](deploy/kubernetes/redis.yaml) | Redis Deployment and ClusterIP Service |
+| [`deploy/kubernetes/notification-service.yaml`](deploy/kubernetes/notification-service.yaml) | Notification API Deployment and ClusterIP Service |
 | [`deploy/istio/gateway.yaml`](deploy/istio/gateway.yaml) | Istio `Gateway` accepting traffic on port 80 |
 | [`deploy/istio/virtual-service.yaml`](deploy/istio/virtual-service.yaml) | `VirtualService` — routes to `v1`, mirrors 100% to `v2` |
 | [`deploy/istio/destination-rule.yaml`](deploy/istio/destination-rule.yaml) | `DestinationRule` defining the `v1`/`v2` subsets |
@@ -118,6 +133,17 @@ kubectl apply -f deploy/kubernetes/deployment-v2.yaml
 kubectl apply -f deploy/kubernetes/service.yaml
 kubectl apply -f deploy/kubernetes/pong-service-deployment.yaml
 kubectl apply -f deploy/kubernetes/pong-service-service.yaml
+kubectl apply -f deploy/kubernetes/postgres-17db.yaml
+kubectl apply -f deploy/kubernetes/redis.yaml
+kubectl apply -f deploy/kubernetes/notification-service.yaml
+```
+
+Build the notification image before applying its Deployment:
+
+```bash
+docker build --build-arg SERVICE=notification-service -t notification-service:local .
+kind load docker-image notification-service:local
+kubectl port-forward svc/notification-service 8082:80
 ```
 
 `io`'s pods resolve `pong-service` and `pong-service`'s pod resolves `io-service` purely through in-cluster DNS (`PEER_URL`) — the same mechanism either Service would use for any other client, so `/peer/trigger` exercises real cluster networking between two independently scaled, independently healthy Deployments:
